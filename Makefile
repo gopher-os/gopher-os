@@ -7,7 +7,7 @@ kernel_target :=$(BUILD_DIR)/kernel-$(ARCH).bin
 iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 
 ifeq ($(OS), Linux)
-export SHELL := /bin/bash
+export SHELL := /bin/bash -o pipefail
 
 LD := ld
 AS := nasm
