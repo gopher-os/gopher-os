@@ -34,8 +34,8 @@ const (
 	Down
 )
 
-// The console.Interface is implemented by objects that can function as physical consoles.
-type Interface interface {
+// The Console interface is implemented by objects that can function as physical consoles.
+type Console interface {
 	sync.Locker
 
 	// Dimensions returns the width and height of the console in characters.
