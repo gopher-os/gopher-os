@@ -202,3 +202,15 @@ func TestVgaWrite(t *testing.T) {
 		t.Errorf("expected call to Write() to set fb[0] to %d; got %d", expVal, got)
 	}
 }
+
+func TestVgaOverrideFb(t *testing.T) {
+	var cons = Vga{}
+	cons.Init()
+
+	fb := []uint16{}
+	cons.OverrideFb(fb)
+
+	if len(cons.fb) != len(fb) {
+		t.Fatalf("expected calling OverrideFb to change the framebuffer for the console")
+	}
+}

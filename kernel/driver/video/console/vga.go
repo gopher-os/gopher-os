@@ -42,6 +42,13 @@ func (cons *Vga) Init() {
 	}))
 }
 
+// OverrideFb overrides the console framebuffer slice with the supplied slice.
+// This is a temporary function used by tests that will be removed once we can work
+// with interfaces.
+func (cons *Vga) OverrideFb(fb []uint16) {
+	cons.fb = fb
+}
+
 // Clear clears the specified rectangular region
 func (cons *Vga) Clear(x, y, width, height uint16) {
 	var (
