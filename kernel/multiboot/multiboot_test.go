@@ -89,6 +89,33 @@ func TestVisitMemRegion(t *testing.T) {
 	}
 }
 
+func TestGetFramebufferInfo(t *testing.T) {
+	SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
+
+	if GetFramebufferInfo() != nil {
+		t.Fatalf("expected GetFramebufferInfo() to return nil when no framebuffer tag is present")
+	}
+
+	SetInfoPtr(uintptr(unsafe.Pointer(&multibootInfoTestData[0])))
+	fbInfo := GetFramebufferInfo()
+
+	if fbInfo.Type != FramebufferTypeEGA {
+		t.Errorf("expected framebuffer type to be %d; got %d", FramebufferTypeEGA, fbInfo.Type)
+	}
+
+	if fbInfo.PhysAddr != 0xB8000 {
+		t.Errorf("expected physical address for EGA text mode to be 0xB8000; got %x", fbInfo.PhysAddr)
+	}
+
+	if fbInfo.Width != 80 || fbInfo.Height != 25 {
+		t.Errorf("expected framebuffer dimensions to be 80x25; got %dx%d", fbInfo.Width, fbInfo.Height)
+	}
+
+	if fbInfo.Pitch != 160 {
+		t.Errorf("expected pitch to be 160; got %x", fbInfo.Pitch)
+	}
+}
+
 var (
 	emptyInfoData = []byte{
 		0, 0, 0, 0, // size

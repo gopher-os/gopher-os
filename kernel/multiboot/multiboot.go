@@ -47,6 +47,38 @@ type mmapHeader struct {
 	entryVersion uint32
 }
 
+// FramebufferType defines the type of the initialized framebuffer.
+type FramebufferType uint8
+
+const (
+	// FrameBufferTypeIndexed specifies a 256-color palette.
+	FrameBufferTypeIndexed FramebufferType = iota
+
+	// FramebufferTypeRGB specifies direct RGB mode.
+	FramebufferTypeRGB
+
+	// FramebufferTypeEGA specifies EGA text mode.
+	FramebufferTypeEGA
+)
+
+// FramebufferInfo provides information about the initialized framebuffer.
+type FramebufferInfo struct {
+	// The framebuffer physical address.
+	PhysAddr uint64
+
+	// Row pitch in bytes.
+	Pitch uint32
+
+	// Width and height in pixels (or characters if Type = FramebufferTypeEGA)
+	Width, Height uint32
+
+	// Bits per pixel (non EGA modes only).
+	Bpp uint8
+
+	// Framebuffer type.
+	Type FramebufferType
+}
+
 // MemoryEntryType defines the type of a MemoryMapEntry.
 type MemoryEntryType uint32
 
@@ -86,7 +118,7 @@ var (
 )
 
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
-// for each memory region defined by the boot loader
+// for each memory region provided by the boot loader.
 type MemRegionVisitor func(entry *MemoryMapEntry)
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
@@ -122,6 +154,19 @@ func VisitMemRegions(visitor MemRegionVisitor) {
 
 		curPtr += uintptr(ptrMapHeader.entrySize)
 	}
+}
+
+// GetFramebufferInfo returns information about the framebuffer initialized by the
+// bootloader. This function returns nil if no framebuffer info is available.
+func GetFramebufferInfo() *FramebufferInfo {
+	var info *FramebufferInfo
+
+	curPtr, size := findTagByType(tagFramebufferInfo)
+	if size != 0 {
+		info = (*FramebufferInfo)(unsafe.Pointer(curPtr))
+	}
+
+	return info
 }
 
 // findTagByType scans the multiboot info data looking for the start of of the
