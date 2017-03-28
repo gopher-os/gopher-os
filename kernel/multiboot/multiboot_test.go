@@ -40,7 +40,63 @@ func TestFindTagByTypeWithMissingTag(t *testing.T) {
 	}
 }
 
+func TestVisitMemRegion(t *testing.T) {
+	specs := []struct {
+		expPhys uint64
+		expLen  uint64
+		expType MemoryEntryType
+	}{
+		// This region type is actually MemAvailable but we patch it to
+		// a bogus value to test whether it gets flagged as reserved
+		{0, 654336, MemReserved},
+		{654336, 1024, MemReserved},
+		{983040, 65536, MemReserved},
+		{1048576, 133038080, MemAvailable},
+		{134086656, 131072, MemReserved},
+		{4294705152, 262144, MemReserved},
+	}
+
+	var visitCount int
+
+	SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
+	VisitMemRegions(func(_ *MemoryMapEntry) {
+		visitCount++
+	})
+
+	if visitCount != 0 {
+		t.Fatal("expected visitor not to be invoked when no memory map tag is present")
+	}
+
+	// Set a bogus type for the first entry in the map
+	SetInfoPtr(uintptr(unsafe.Pointer(&multibootInfoTestData[0])))
+	multibootInfoTestData[128] = 0xFF
+
+	VisitMemRegions(func(entry *MemoryMapEntry) {
+		if entry.PhysAddress != specs[visitCount].expPhys {
+			t.Errorf("[visit %d] expected physical address to be %x; got %x", visitCount, specs[visitCount].expPhys, entry.PhysAddress)
+		}
+		if entry.Length != specs[visitCount].expLen {
+			t.Errorf("[visit %d] expected region len to be %x; got %x", visitCount, specs[visitCount].expLen, entry.Length)
+		}
+		if entry.Type != specs[visitCount].expType {
+			t.Errorf("[visit %d] expected region type to be %d; got %d", visitCount, specs[visitCount].expType, entry.Type)
+		}
+		visitCount++
+	})
+
+	if visitCount != len(specs) {
+		t.Errorf("expected the visitor func to be invoked %d times; got %d", len(specs), visitCount)
+	}
+}
+
 var (
+	emptyInfoData = []byte{
+		0, 0, 0, 0, // size
+		0, 0, 0, 0, // reserved
+		0, 0, 0, 0, // tag with type zero and length zero
+		0, 0, 0, 0,
+	}
+
 	// A dump of multiboot data when running under qemu.
 	multibootInfoTestData = []byte{
 		72, 5, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 9, 0, 0, 0,

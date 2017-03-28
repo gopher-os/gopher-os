@@ -85,11 +85,43 @@ var (
 	infoData uintptr
 )
 
+// MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
+// for each memory region defined by the boot loader
+type MemRegionVisitor func(entry *MemoryMapEntry)
+
 // SetInfoPtr updates the internal multiboot information pointer to the given
 // value. This function must be invoked before invoking any other function
 // exported by this package.
 func SetInfoPtr(ptr uintptr) {
 	infoData = ptr
+}
+
+// VisitMemRegions will invoke the supplied visitor for each memory region that
+// is defined by the multiboot info data that we received from the bootloader.
+func VisitMemRegions(visitor MemRegionVisitor) {
+	curPtr, size := findTagByType(tagMemoryMap)
+	if size == 0 {
+		return
+	}
+
+	// curPtr points to the memory map header (2 dwords long)
+	ptrMapHeader := (*mmapHeader)(unsafe.Pointer(curPtr))
+	endPtr := curPtr + uintptr(size)
+	curPtr += 8
+
+	var entry *MemoryMapEntry
+	for curPtr != endPtr {
+		entry = (*MemoryMapEntry)(unsafe.Pointer(curPtr))
+
+		// Mark unknown entry types as reserved
+		if entry.Type == 0 || entry.Type > memUnknown {
+			entry.Type = MemReserved
+		}
+
+		visitor(entry)
+
+		curPtr += uintptr(ptrMapHeader.entrySize)
+	}
 }
 
 // findTagByType scans the multiboot info data looking for the start of of the
