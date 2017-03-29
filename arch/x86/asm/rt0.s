@@ -24,17 +24,29 @@ section .text
 bits 32
 align 4
 
+MULTIBOOT_MAGIC equ 0x36d76289
+
+err_unsupported_bootloader db '[rt0] kernel not loaded by multiboot-compliant bootloader', 0
+err_kmain_returned db '[rt0] kMain returned; halting system', 0
+
 ;------------------------------------------------------------------------------
 ; Kernel arch-specific entry point
 ;
 ; The boot loader will jump to this symbol after setting up the CPU according
 ; to the multiboot standard. At this point:
+; - A20 is enabled
 ; - The CPU is using 32-bit protected mode
 ; - Interrupts are disabled
 ; - Paging is disabled
+; - EAX contains the magic value ‘0x36d76289’; the presence of this value indicates
+;   to the operating system that it was loaded by a Multiboot-compliant boot loader
+; - EBX contains the 32-bit physical address of the Multiboot information structure
 ;------------------------------------------------------------------------------
 global _rt0_entry
 _rt0_entry:
+	cmp eax, MULTIBOOT_MAGIC
+	jne unsupported_bootloader
+
 	; Initalize our stack by pointing ESP to the BSS-allocated stack. In x86,
 	; stack grows downwards so we need to point ESP to stack_top
 	mov esp, stack_top
@@ -48,19 +60,60 @@ _rt0_entry:
 	mov dword [g0_stack_lo], stack_bottom
 	mov dword [g0_stackguard0], stack_bottom
 
-	extern main.main
-	call main.main
+	; push multiboot info ptr to the stack and call the kernel entrypoint
+	push ebx
+	extern kernel.Kmain
+	call kernel.Kmain
+
+	; kmain should never return
+	mov edi, err_kmain_returned
+	call write_string
 
 	; Main should never return; halt the CPU
+halt:
 	cli
 	hlt
+
+unsupported_bootloader:
+	mov edi, err_unsupported_bootloader
+	call write_string
+	jmp halt
 .end:
+
+;------------------------------------------------------------------------------
+; Write the NULL-terminated string contained in edi to the screen using white
+; text on red background.  Assumes that text-mode is enabled and that its
+; physical address is 0xb8000.
+;------------------------------------------------------------------------------
+write_string:
+	push eax
+	push ebx
+
+	mov ebx,0xb8000
+	mov ah, 0x4F
+next_char:
+	mov al, byte[edi]
+	test al, al
+	jz done
+
+	mov word [ebx], ax
+	add ebx, 2
+	inc edi
+	jmp next_char
+
+done:
+	pop ebx
+	pop eax
+	ret
 
 ;------------------------------------------------------------------------------
 ; Load GDT and flush CPU caches
 ;------------------------------------------------------------------------------
 
 _rt0_load_gdt:
+	push eax
+	push ebx
+
 	; Go code uses the GS register to access the TLS. Set the base address
 	; for the GS descriptor to point to our tls0 table
 	mov eax, tls0
@@ -84,6 +137,8 @@ update_descriptors:
 	mov ax, GS_SEG
 	mov gs, ax
 
+	pop ebx
+	pop eax
 	ret
 
 ;------------------------------------------------------------------------------

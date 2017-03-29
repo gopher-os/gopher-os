@@ -18,12 +18,15 @@ GOARCH := 386
 LD_FLAGS := -n -melf_i386 -T arch/$(ARCH)/script/linker.ld -static --no-ld-generated-unwind-info
 AS_FLAGS := -g -f elf32 -F dwarf -I arch/$(ARCH)/asm/
 
+MIN_OBJCOPY_VERSION := 2.26.0
+HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
+
 asm_src_files := $(wildcard arch/$(ARCH)/asm/*.s)
 asm_obj_files := $(patsubst arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/%.o, $(asm_src_files))
 
-.PHONY: kernel iso clean
+.PHONY: kernel iso clean binutils_version_check
 
-kernel: $(kernel_target)
+kernel: binutils_version_check $(kernel_target)
 
 $(kernel_target): $(asm_obj_files) go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
@@ -45,9 +48,16 @@ go.o:
 
 	@# build/go.o is a elf32 object file but all go symbols are unexported. Our
 	@# asm entrypoint code needs to know the address to 'main.main' so we use
-	@# objcopy to make that symbol exportable
-	@echo "[objcopy] export 'main.main' symbol in go.o"
-	@objcopy --globalize-symbol='main.main' $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
+	@# objcopy to make that symbol exportable. Since nasm does not support externs
+	@# with slashes we create a global symbol alias for kernel.Kmain
+	@echo "[objcopy] creating global symbol alias 'kernel.Kmain' for 'github.com/achilleasa/gopher-os/kernel.Kmain' in go.o"
+	@objcopy \
+		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kernel.Kmain" | cut -d' ' -f1` \
+		 $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
+
+binutils_version_check:
+	@echo "[binutils] checking that installed objcopy version is >= $(MIN_OBJCOPY_VERSION)"
+	@if [ "$(HAVE_VALID_OBJCOPY)" != "y" ]; then echo "[binutils] error: a more up to date binutils installation is required" ; exit 1 ; fi
 
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
