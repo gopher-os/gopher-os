@@ -8,9 +8,10 @@ Vagrant.configure("2") do |config|
   config.vm.provider "virtualbox" do |vb|
     vb.customize ["modifyvm", :id, "--usb", "on"]
     vb.customize ["modifyvm", :id, "--usbehci", "off"]
+    vb.customize ["modifyvm", :id, "--cableconnected1", "on"]
   end
 
-  config.vm.box = "minimal/trusty64"
+  config.vm.box = "minimal/xenial64"
 
   config.vm.synced_folder "./", "/home/vagrant/workspace/src/github.com/achilleasa/gopher-os"
 
