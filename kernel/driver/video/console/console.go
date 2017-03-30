@@ -1,7 +1,5 @@
 package console
 
-import "sync"
-
 // Attr defines a color attribute.
 type Attr uint16
 
@@ -36,8 +34,6 @@ const (
 
 // The Console interface is implemented by objects that can function as physical consoles.
 type Console interface {
-	sync.Locker
-
 	// Dimensions returns the width and height of the console in characters.
 	Dimensions() (uint16, uint16)
 

@@ -2,6 +2,7 @@ package tty
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel/driver/video/console"
 )
@@ -18,11 +19,12 @@ func TestVtPosition(t *testing.T) {
 		{100, 100, 79, 24},
 	}
 
-	var cons console.Vga
-	cons.Init()
+	fb := make([]uint16, 80*25)
+	var cons console.Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 	var vt Vt
-	vt.Init(&cons)
+	vt.AttachTo(&cons)
 
 	for specIndex, spec := range specs {
 		vt.SetPosition(spec.inX, spec.inY)
@@ -34,12 +36,11 @@ func TestVtPosition(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	fb := make([]uint16, 80*25)
-	cons := &console.Vga{}
-	cons.OverrideFb(fb)
-	cons.Init()
+	var cons console.Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 	var vt Vt
-	vt.Init(cons)
+	vt.AttachTo(&cons)
 
 	vt.Clear()
 	vt.SetPosition(0, 1)

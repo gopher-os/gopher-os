@@ -2,7 +2,6 @@ package console
 
 import (
 	"reflect"
-	"sync"
 	"unsafe"
 )
 
@@ -16,8 +15,6 @@ const (
 // allocator, each console will use its own framebuffer while the active console
 // will periodically sync its internal buffer with the physical screen buffer.
 type Ega struct {
-	sync.Mutex
-
 	width  uint16
 	height uint16
 
