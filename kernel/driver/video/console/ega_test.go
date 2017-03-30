@@ -1,10 +1,13 @@
 package console
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
 
-func TestVgaInit(t *testing.T) {
-	var cons Vga
-	cons.Init()
+func TestEgaInit(t *testing.T) {
+	var cons Ega
+	cons.Init(80, 25, 0xB8000)
 
 	var expWidth uint16 = 80
 	var expHeight uint16 = 25
@@ -14,7 +17,7 @@ func TestVgaInit(t *testing.T) {
 	}
 }
 
-func TestVgaClear(t *testing.T) {
+func TestEgaClear(t *testing.T) {
 	specs := []struct {
 		// Input rect
 		x, y, w, h uint16
@@ -48,8 +51,9 @@ func TestVgaClear(t *testing.T) {
 		},
 	}
 
-	var cons = Vga{fb: make([]uint16, 80*25)}
-	cons.Init()
+	fb := make([]uint16, 80*25)
+	var cons Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 	testPat := uint16(0xDEAD)
 	clearPat := (uint16(clearColor) << 8) | uint16(clearChar)
@@ -58,7 +62,7 @@ nextSpec:
 	for specIndex, spec := range specs {
 		// Fill FB with test pattern
 		for i := 0; i < len(cons.fb); i++ {
-			cons.fb[i] = testPat
+			fb[i] = testPat
 		}
 
 		cons.Clear(spec.x, spec.y, spec.w, spec.h)
@@ -66,7 +70,7 @@ nextSpec:
 		var x, y uint16
 		for y = 0; y < cons.height; y++ {
 			for x = 0; x < cons.width; x++ {
-				fbVal := cons.fb[(y*cons.width)+x]
+				fbVal := fb[(y*cons.width)+x]
 
 				if x < spec.expX || y < spec.expY || x >= spec.expX+spec.expW || y >= spec.expY+spec.expH {
 					if fbVal != testPat {
@@ -84,15 +88,16 @@ nextSpec:
 	}
 }
 
-func TestVgaScrollUp(t *testing.T) {
+func TestEgaScrollUp(t *testing.T) {
 	specs := []uint16{
 		0,
 		1,
 		2,
 	}
 
-	var cons = Vga{fb: make([]uint16, 80*25)}
-	cons.Init()
+	fb := make([]uint16, 80*25)
+	var cons Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 nextSpec:
 	for specIndex, lines := range specs {
@@ -100,7 +105,7 @@ nextSpec:
 		var x, y, index uint16
 		for y = 0; y < cons.height; y++ {
 			for x = 0; x < cons.width; x++ {
-				cons.fb[index] = (y << 8) | x
+				fb[index] = (y << 8) | x
 				index++
 			}
 		}
@@ -112,7 +117,7 @@ nextSpec:
 		for y = 0; y < cons.height-lines; y++ {
 			for x = 0; x < cons.width; x++ {
 				expVal := ((y + lines) << 8) | x
-				if cons.fb[index] != expVal {
+				if fb[index] != expVal {
 					t.Errorf("[spec %d] expected value at (%d, %d) to be %d; got %d", specIndex, x, y, expVal, cons.fb[index])
 					continue nextSpec
 				}
@@ -122,15 +127,16 @@ nextSpec:
 	}
 }
 
-func TestVgaScrollDown(t *testing.T) {
+func TestEgaScrollDown(t *testing.T) {
 	specs := []uint16{
 		0,
 		1,
 		2,
 	}
 
-	var cons = Vga{fb: make([]uint16, 80*25)}
-	cons.Init()
+	fb := make([]uint16, 80*25)
+	var cons Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 nextSpec:
 	for specIndex, lines := range specs {
@@ -138,7 +144,7 @@ nextSpec:
 		var x, y, index uint16
 		for y = 0; y < cons.height; y++ {
 			for x = 0; x < cons.width; x++ {
-				cons.fb[index] = (y << 8) | x
+				fb[index] = (y << 8) | x
 				index++
 			}
 		}
@@ -150,7 +156,7 @@ nextSpec:
 		for y = lines; y < cons.height-lines; y++ {
 			for x = 0; x < cons.width; x++ {
 				expVal := ((y - lines) << 8) | x
-				if cons.fb[index] != expVal {
+				if fb[index] != expVal {
 					t.Errorf("[spec %d] expected value at (%d, %d) to be %d; got %d", specIndex, x, y, expVal, cons.fb[index])
 					continue nextSpec
 				}
@@ -160,9 +166,10 @@ nextSpec:
 	}
 }
 
-func TestVgaWriteWithOffScreenCoords(t *testing.T) {
-	var cons = Vga{fb: make([]uint16, 80*25)}
-	cons.Init()
+func TestEgaWriteWithOffScreenCoords(t *testing.T) {
+	fb := make([]uint16, 80*25)
+	var cons Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 	specs := []struct {
 		x, y uint16
@@ -176,13 +183,13 @@ func TestVgaWriteWithOffScreenCoords(t *testing.T) {
 nextSpec:
 	for specIndex, spec := range specs {
 		for i := 0; i < len(cons.fb); i++ {
-			cons.fb[i] = 0
+			fb[i] = 0
 		}
 
 		cons.Write('!', Red, spec.x, spec.y)
 
 		for i := 0; i < len(cons.fb); i++ {
-			if got := cons.fb[i]; got != 0 {
+			if got := fb[i]; got != 0 {
 				t.Errorf("[spec %d] expected Write() with off-screen coords to be a no-op", specIndex)
 				continue nextSpec
 			}
@@ -190,27 +197,16 @@ nextSpec:
 	}
 }
 
-func TestVgaWrite(t *testing.T) {
-	var cons = Vga{fb: make([]uint16, 80*25)}
-	cons.Init()
+func TestEgaWrite(t *testing.T) {
+	fb := make([]uint16, 80*25)
+	var cons Ega
+	cons.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 
 	attr := (Black << 4) | Red
 	cons.Write('!', attr, 0, 0)
 
 	expVal := uint16(attr<<8) | uint16('!')
-	if got := cons.fb[0]; got != expVal {
+	if got := fb[0]; got != expVal {
 		t.Errorf("expected call to Write() to set fb[0] to %d; got %d", expVal, got)
-	}
-}
-
-func TestVgaOverrideFb(t *testing.T) {
-	var cons = Vga{}
-	cons.Init()
-
-	fb := []uint16{}
-	cons.OverrideFb(fb)
-
-	if len(cons.fb) != len(fb) {
-		t.Fatalf("expected calling OverrideFb to change the framebuffer for the console")
 	}
 }

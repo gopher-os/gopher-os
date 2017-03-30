@@ -11,11 +11,11 @@ const (
 	clearChar  = byte(' ')
 )
 
-// Vga implements an EGA-compatible text console. At the moment, it uses the
+// Ega implements an EGA-compatible text console. At the moment, it uses the
 // ega console physical address as its outpucons. After implementing a memory
 // allocator, each console will use its own framebuffer while the active console
 // will periodically sync its internal buffer with the physical screen buffer.
-type Vga struct {
+type Ega struct {
 	sync.Mutex
 
 	width  uint16
@@ -25,32 +25,19 @@ type Vga struct {
 }
 
 // Init sets up the console.
-func (cons *Vga) Init() {
-	cons.width = 80
-	cons.height = 25
-
-	// Set up our frame buffer object by creating a fake slice object pointing
-	// to the physical address of the screen buffer.
-	if cons.fb != nil {
-		return
-	}
+func (cons *Ega) Init(width, height uint16, fbPhysAddr uintptr) {
+	cons.width = width
+	cons.height = height
 
 	cons.fb = *(*[]uint16)(unsafe.Pointer(&reflect.SliceHeader{
 		Len:  int(cons.width * cons.height),
 		Cap:  int(cons.width * cons.height),
-		Data: uintptr(0xB8000),
+		Data: fbPhysAddr,
 	}))
 }
 
-// OverrideFb overrides the console framebuffer slice with the supplied slice.
-// This is a temporary function used by tests that will be removed once we can work
-// with interfaces.
-func (cons *Vga) OverrideFb(fb []uint16) {
-	cons.fb = fb
-}
-
 // Clear clears the specified rectangular region
-func (cons *Vga) Clear(x, y, width, height uint16) {
+func (cons *Ega) Clear(x, y, width, height uint16) {
 	var (
 		attr                 = uint16((clearColor << 4) | clearColor)
 		clr                  = attr | uint16(clearChar)
@@ -81,12 +68,12 @@ func (cons *Vga) Clear(x, y, width, height uint16) {
 }
 
 // Dimensions returns the console width and height in characters.
-func (cons *Vga) Dimensions() (uint16, uint16) {
+func (cons *Ega) Dimensions() (uint16, uint16) {
 	return cons.width, cons.height
 }
 
 // Scroll a particular number of lines to the specified direction.
-func (cons *Vga) Scroll(dir ScrollDir, lines uint16) {
+func (cons *Ega) Scroll(dir ScrollDir, lines uint16) {
 	if lines == 0 || lines > cons.height {
 		return
 	}
@@ -107,7 +94,7 @@ func (cons *Vga) Scroll(dir ScrollDir, lines uint16) {
 }
 
 // Write a char to the specified location.
-func (cons *Vga) Write(ch byte, attr Attr, x, y uint16) {
+func (cons *Ega) Write(ch byte, attr Attr, x, y uint16) {
 	if x >= cons.width || y >= cons.height {
 		return
 	}
