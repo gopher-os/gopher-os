@@ -3,6 +3,7 @@ package kernel
 import (
 	_ "unsafe" // required for go:linkname
 
+	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 )
 
@@ -19,4 +20,8 @@ import (
 //go:noinline
 func Kmain(multibootInfoPtr uint32) {
 	multiboot.SetInfoPtr(uintptr(multibootInfoPtr))
+
+	// Initialize and clear the terminal
+	hal.InitTerminal()
+	hal.ActiveTerminal.Clear()
 }
