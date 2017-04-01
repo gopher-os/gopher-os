@@ -3,7 +3,8 @@ package kernel
 import (
 	_ "unsafe" // required for go:linkname
 
-	"github.com/achilleasa/gopher-os/kernel/multiboot"
+	"github.com/achilleasa/gopher-os/kernel/hal"
+	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 )
 
 // Kmain is the only Go symbol that is visible (exported) from the rt0 initialization
@@ -19,4 +20,8 @@ import (
 //go:noinline
 func Kmain(multibootInfoPtr uint32) {
 	multiboot.SetInfoPtr(uintptr(multibootInfoPtr))
+
+	// Initialize and clear the terminal
+	hal.InitTerminal()
+	hal.ActiveTerminal.Clear()
 }

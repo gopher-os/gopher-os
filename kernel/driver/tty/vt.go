@@ -12,7 +12,7 @@ const (
 type Vt struct {
 	// Go interfaces will not work before we can get memory allocation working.
 	// Till then we need to use concrete types instead.
-	cons *console.Vga
+	cons *console.Ega
 
 	width  uint16
 	height uint16
@@ -22,7 +22,9 @@ type Vt struct {
 	curAttr console.Attr
 }
 
-func (t *Vt) Init(cons *console.Vga) {
+// AttachTo links the terminal with the specified console device and updates
+// the terminal's dimensions to match the ones reported by the attached device.
+func (t *Vt) AttachTo(cons *console.Ega) {
 	t.cons = cons
 	t.width, t.height = cons.Dimensions()
 	t.curX = 0
@@ -30,30 +32,20 @@ func (t *Vt) Init(cons *console.Vga) {
 
 	// Default to lightgrey on black text.
 	t.curAttr = makeAttr(defaultFg, defaultBg)
-
 }
 
 // Clear clears the terminal.
 func (t *Vt) Clear() {
-	t.cons.Lock()
-	defer t.cons.Unlock()
-
 	t.clear()
 }
 
 // Position returns the current cursor position (x, y).
 func (t *Vt) Position() (uint16, uint16) {
-	t.cons.Lock()
-	defer t.cons.Unlock()
-
 	return t.curX, t.curY
 }
 
 // SetPosition sets the current cursor position to (x,y).
 func (t *Vt) SetPosition(x, y uint16) {
-	t.cons.Lock()
-	defer t.cons.Unlock()
-
 	if x >= t.width {
 		x = t.width - 1
 	}
@@ -67,9 +59,6 @@ func (t *Vt) SetPosition(x, y uint16) {
 
 // Write implements io.Writer.
 func (t *Vt) Write(data []byte) (int, error) {
-	t.cons.Lock()
-	defer t.cons.Unlock()
-
 	attr := t.curAttr
 	for _, b := range data {
 		switch b {
