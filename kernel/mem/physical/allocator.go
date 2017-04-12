@@ -1,6 +1,9 @@
 package physical
 
-import "reflect"
+import (
+	"reflect"
+	"unsafe"
+)
 
 const (
 	MaxPageOrder = 10
@@ -54,6 +57,26 @@ func (alloc *buddyAllocator) setBitmapSizes(pageCount uint64) {
 		// the following line is equivalent to align(ceil(pageCount / ord), 64)
 		requiredUint64 = align((pageCount+(1<<ord)-1)>>ord, 64) >> 6
 		alloc.bitmapSlice[ord].Cap, alloc.bitmapSlice[ord].Len = int(requiredUint64), int(requiredUint64)
+	}
+}
+
+// setBitmapPointers updates the Data field for the allocator's bitmap slice
+// headers so that each slice's data begins at a 8-byte aligned offset after the
+// provided baseAddr value.
+//
+// This method also patches the freeBitmap slice entries so that they point to the
+// populated slice header structs.
+//
+// After a call to setBitmapPointers, the allocator will be able to freely access
+// all freeBitmap entries.
+func (alloc *buddyAllocator) setBitmapPointers(baseAddr uintptr) {
+	var dataPtr = baseAddr
+	for ord := 0; ord < MaxPageOrder; ord++ {
+		alloc.bitmapSlice[ord].Data = dataPtr
+		alloc.freeBitmap[ord] = *(*[]uint64)(unsafe.Pointer(&alloc.bitmapSlice[ord]))
+
+		// offset += ordLen * 8 bytes per uint64
+		dataPtr += uintptr(alloc.bitmapSlice[ord].Len << 3)
 	}
 }
 
