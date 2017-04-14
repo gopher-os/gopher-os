@@ -3,11 +3,12 @@ package physical
 import (
 	"reflect"
 	"unsafe"
+
+	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
 const (
 	MaxPageOrder = 10
-	PageSize     = 1 << 12 // 4096
 )
 
 var (
@@ -35,28 +36,61 @@ type buddyAllocator struct {
 	// After calculating the total required bits for all bitmaps we perform a
 	// second pass where we scan the available memory blocks looking for a
 	// block that can fit all bitmaps and adjust the slice Data pointers
-	// accordingly
+	// accordingly.
 	bitmapSlice [MaxPageOrder]reflect.SliceHeader
+}
+
+// updateHigherOrderFlags hierarchically traverses the free bitmaps from lower
+// to higher orders and for each order, updates the page bit that corresponds
+// to the supplied physical address based on the value of the 2 buddy pages of
+// the order below it. The status of page at ord(N) is set to the OR-ed value
+// of the 2 buddy pages at ord(N-1).
+func (alloc *buddyAllocator) updateHigherOrderFlags(addr uintptr, ord uint64) {
+	// sanity checks
+	if ord == MaxPageOrder {
+		return
+	}
+
+	// ord(0) has no children
+	if ord == 0 {
+		ord++
+	}
+
+	var bitIndex, block, blockMask, childBitIndex, childBlock, childBlockMask uint64
+	for bitIndex = uint64(addr) >> (mem.PageShift + ord); ord < MaxPageOrder; ord, bitIndex = ord+1, bitIndex>>1 {
+		block = bitIndex >> 6
+		blockMask = 1 << (63 - (bitIndex & 63))
+
+		// This bit should be marked as used any of the (ord-1) bits:
+		// (2*bit)+1 or (2*bit)+2 are marked as used. The child mask
+		// that includes these bits is calculated by shifting the
+		// value "3" (11b) left childBitIndex positions.
+		childBitIndex = (bitIndex << 1) + 1
+		childBlock = childBitIndex >> 6
+		childBlockMask = 3 << (63 - (childBitIndex & 63))
+
+		switch alloc.freeBitmap[ord-1][childBlock] & childBlockMask {
+		case 0: // both bits are not set; we just need to clear the bit
+			alloc.freeBitmap[ord][block] &^= blockMask
+		default: // one or both bits are set; we just need to set the bit
+			alloc.freeBitmap[ord][block] |= blockMask
+		}
+	}
 }
 
 // setBitmapSizes updates the Len and Cap fields of the allocator's bitmap slice
 // headers to the required number of bits for each allocation order.
 //
-// Given N pages of size PageSize:
-// the bitmap for order(0) uses align(N, 64) bits, one for each block with size (PageSize << 0)
-// the bitmap for order(M) uses ceil(N / M) bits, one for each block with size (PageSize << M)
+// Given N pages of size mem.PageSize:
+// the bitmap for order(0) uses align(N, 64) bits, one for each block with size (mem.PageSize << 0)
+// the bitmap for order(M) uses ceil(N / M) bits, one for each block with size (mem.PageSize << M)
 //
 // Since we use []uint64 for our bitmap entries, this method will pad the required
 // number of bits per order so they are multiples of 64.
 func (alloc *buddyAllocator) setBitmapSizes(pageCount uint64) {
-	// Divide the number of bits by 64 (1<<6) to get the number of uint64 for the slice
-	requiredUint64 := align(pageCount, 64) >> 6
-	alloc.bitmapSlice[0].Cap, alloc.bitmapSlice[0].Len = int(requiredUint64), int(requiredUint64)
-
-	for ord := uint64(1); ord < MaxPageOrder; ord++ {
-		// the following line is equivalent to align(ceil(pageCount / ord), 64)
-		requiredUint64 = align((pageCount+(1<<ord)-1)>>ord, 64) >> 6
-		alloc.bitmapSlice[ord].Cap, alloc.bitmapSlice[ord].Len = int(requiredUint64), int(requiredUint64)
+	for ord := uint64(0); ord < MaxPageOrder; ord++ {
+		requiredUint64 := requiredUint64(pageCount, ord)
+		alloc.bitmapSlice[ord].Cap, alloc.bitmapSlice[ord].Len = requiredUint64, requiredUint64
 	}
 }
 
@@ -83,4 +117,12 @@ func (alloc *buddyAllocator) setBitmapPointers(baseAddr uintptr) {
 // align ensures that v is a multiple of n.
 func align(v, n uint64) uint64 {
 	return (v + (n - 1)) & ^(n - 1)
+}
+
+// requiredUint64 returns the number of uint64 required for storing a bitmap
+// of order(ord) for pageCount pages.
+func requiredUint64(pageCount, ord uint64) int {
+	// requiredBits = pageCount / (2*ord) + pageCount % (2*ord)
+	requiredBits := (pageCount >> ord) + (pageCount & ((1 << ord) - 1))
+	return int(align(requiredBits, 64) >> 6)
 }

@@ -1,9 +1,94 @@
 package physical
 
 import (
+	"strconv"
 	"testing"
 	"unsafe"
+
+	"github.com/achilleasa/gopher-os/kernel/mem"
 )
+
+func TestUpdateHigherOrderFlagsForInvalidOrder(t *testing.T) {
+	alloc, _ := testAllocator(1)
+	alloc.updateHigherOrderFlags(0, MaxPageOrder)
+	alloc.updateHigherOrderFlags(0, MaxPageOrder+1)
+}
+
+func TestUpdateHigherOrderFlags(t *testing.T) {
+	memSizeMB := uint64(4)
+	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+
+	alloc, _ := testAllocator(memSizeMB)
+
+	for page := uint64(0); page < pageCount; page++ {
+		for _, bitmap := range alloc.freeBitmap {
+			for i := 0; i < len(bitmap); i++ {
+				bitmap[i] = 0
+			}
+		}
+
+		// Set the ord(0) bit that corresponds to that page to 1 and check that all parents are marked as reserved
+		block := page / 64
+		blockMask := uint64(1 << (63 - (page % 64)))
+		alloc.freeBitmap[0][block] |= blockMask
+		alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
+		for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			val := alloc.freeBitmap[ord][bitIndex/64]
+			valMask := uint64(1 << (63 - (bitIndex % 64)))
+			if (val & valMask) == 0 {
+				t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 1; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
+			}
+		}
+
+		// Now clear the ord(0) bit and make sure that all parents are marked as free
+		alloc.freeBitmap[0][block] ^= blockMask
+		alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
+		for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			val := alloc.freeBitmap[ord][bitIndex/64]
+			if val != 0 {
+				t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
+			}
+		}
+
+		// Check buddy pages for even pages
+		if page%2 == 0 {
+			// Set the ord(0) bit for the buddy page and check that all parents (starting at ord 1) are marked as reserved
+			// same bits to be set for ord(1 to MaxPageOrder)
+			alloc.freeBitmap[0][block] |= blockMask >> 1
+			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page>>1, 1; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+				val := alloc.freeBitmap[ord][bitIndex/64]
+				valMask := uint64(1 << (63 - (bitIndex % 64)))
+				if (val & valMask) == 0 {
+					t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 1; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
+				}
+			}
+
+			// Now clear the ord(0) bit for the buddy page and make sure that all parents are marked as free
+			alloc.freeBitmap[0][block] ^= blockMask >> 1
+			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+				val := alloc.freeBitmap[ord][bitIndex/64]
+				if val != 0 {
+					t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
+				}
+			}
+
+			// Finally mark both buddy pages at ord(0) as used and check that all parents (starting at ord 1) are marked as reserved
+			alloc.freeBitmap[0][block] |= blockMask
+			alloc.freeBitmap[0][block] |= blockMask >> 1
+			alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
+			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page>>1, 1; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+				val := alloc.freeBitmap[ord][bitIndex/64]
+				valMask := uint64(1 << (63 - (bitIndex % 64)))
+				if (val & valMask) == 0 {
+					t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 1; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
+				}
+			}
+		}
+	}
+}
 
 func TestSetBitmapSizes(t *testing.T) {
 	specs := []struct {
@@ -47,24 +132,7 @@ func TestSetBitmapSizes(t *testing.T) {
 }
 
 func TestSetBitmapPointers(t *testing.T) {
-	var availMemInMB uint64 = 4
-
-	alloc := &buddyAllocator{}
-	alloc.setBitmapSizes(availMemInMB * 1024 * 1024 / PageSize)
-
-	requiredSize := 0
-	for _, hdr := range alloc.bitmapSlice {
-		requiredSize += hdr.Len * 8
-	}
-
-	// Allocate scratch buffer and set it to a known pattern
-	scratchBuf := make([]byte, requiredSize)
-	for i := 0; i < len(scratchBuf); i++ {
-		scratchBuf[i] = 0xFF
-	}
-
-	// Setup pointers and iterate each freeBitmap setting its contents to 0
-	alloc.setBitmapPointers(uintptr(unsafe.Pointer(&scratchBuf[0])))
+	alloc, scratchBuf := testAllocator(4)
 	for _, bitmap := range alloc.freeBitmap {
 		for i := 0; i < len(bitmap); i++ {
 			bitmap[i] = 0
@@ -98,4 +166,24 @@ func TestAlign(t *testing.T) {
 			t.Errorf("[spec %d] expected align(%d, %d) to return %d; got %d", specIndex, spec.in, spec.n, spec.expOut, out)
 		}
 	}
+}
+
+func testAllocator(memInMB uint64) (*buddyAllocator, []byte) {
+	alloc := &buddyAllocator{}
+	alloc.setBitmapSizes(memInMB * 1024 * 1024 / mem.PageSize)
+
+	requiredSize := 0
+	for _, hdr := range alloc.bitmapSlice {
+		requiredSize += hdr.Len * 8
+	}
+
+	// Allocate scratch buffer and set it to a known pattern
+	scratchBuf := make([]byte, requiredSize)
+	for i := 0; i < len(scratchBuf); i++ {
+		scratchBuf[i] = 0xFF
+	}
+
+	// Setup pointers
+	alloc.setBitmapPointers(uintptr(unsafe.Pointer(&scratchBuf[0])))
+	return alloc, scratchBuf
 }
