@@ -78,6 +78,22 @@ func (alloc *buddyAllocator) updateHigherOrderFlags(addr uintptr, ord uint64) {
 	}
 }
 
+// incFreeCountForLowerOrders is called when a free page at ord(N) is allocated
+// to update all free page counters for all orders less than or equal to N. The
+// number of free pages that are added to the counters doubles for each order less than N.
+func (alloc *buddyAllocator) incFreeCountForLowerOrders(ord uint64) {
+	// sanity check
+	if ord >= MaxPageOrder {
+		return
+	}
+
+	// When ord reaches 0; ord - 1 will wrap to MaxUint32 so we need to check for that as well
+	freeCount := uint32(2)
+	for ord = ord - 1; ord >= 0 && ord < MaxPageOrder; ord, freeCount = ord-1, freeCount<<1 {
+		alloc.freeCount[ord] += freeCount
+	}
+}
+
 // setBitmapSizes updates the Len and Cap fields of the allocator's bitmap slice
 // headers to the required number of bits for each allocation order.
 //

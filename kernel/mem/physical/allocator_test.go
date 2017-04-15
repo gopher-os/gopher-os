@@ -8,6 +8,27 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
+func TestIncFreeCount(t *testing.T) {
+	alloc, _ := testAllocator(1)
+
+	// Sanity check; calling with an invalid order should have no effect
+	alloc.incFreeCountForLowerOrders(MaxPageOrder)
+	for ord := 0; ord < MaxPageOrder; ord++ {
+		if got := alloc.freeCount[ord]; got != 0 {
+			t.Fatalf("expected ord(%d) free count to be 0; got %d\n", ord, got)
+		}
+	}
+
+	alloc.incFreeCountForLowerOrders(MaxPageOrder - 1)
+	for ord := uint32(0); ord < MaxPageOrder-2; ord++ {
+		expCount := uint32(1 << (MaxPageOrder - ord - 1))
+		if got := alloc.freeCount[ord]; got != expCount {
+			t.Fatalf("expected ord(%d) free count to be %d; got %d\n", ord, expCount, got)
+		}
+	}
+
+}
+
 func TestUpdateHigherOrderFlagsForInvalidOrder(t *testing.T) {
 	alloc, _ := testAllocator(1)
 	alloc.updateHigherOrderFlags(0, MaxPageOrder)
