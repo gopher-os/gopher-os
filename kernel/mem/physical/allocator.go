@@ -25,6 +25,13 @@ const (
 	maxPageOrder
 )
 
+type reservationMode uint8
+
+const (
+	markFree     reservationMode = 0
+	markReserved                 = 1
+)
+
 var (
 	Allocator buddyAllocator
 )
@@ -52,6 +59,53 @@ type buddyAllocator struct {
 	// block that can fit all bitmaps and adjust the slice Data pointers
 	// accordingly.
 	bitmapSlice [maxPageOrder]reflect.SliceHeader
+}
+
+func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, mode reservationMode) {
+	order--
+
+	var (
+		firstBitIndex              uint32 = uint32(addr >> (mem.PageShift + order))
+		totalBitCount              uint32 = 2
+		bitsToChange, lastBitIndex uint32
+	)
+
+	for ; order >= 0 && order < maxPageOrder; order = order - 1 {
+		lastBitIndex = firstBitIndex + totalBitCount
+		for bitIndex := firstBitIndex; bitIndex < lastBitIndex; bitIndex += bitsToChange {
+			block := bitIndex >> 6
+			blockOffset := bitIndex & 63
+
+			// We need to change min(64, lastBitIndex - bitIndex) bits in this block
+			bitsToChange = lastBitIndex - bitIndex
+			if bitsToChange > 64 {
+				bitsToChange = 64
+			}
+
+			// To build the block mask we start with a value with the
+			// bitsToChange LSB set and shift it right so it alignts with
+			// the offset position in the block
+			blockMask := uint64(((1 << (bitsToChange)) - 1) << (64 - blockOffset - bitsToChange))
+
+			// Mark either as reserved (set to 1) or free (set to 0)
+			if mode == markReserved {
+				alloc.freeBitmap[order][block] |= blockMask
+			} else {
+				alloc.freeBitmap[order][block] &^= blockMask
+			}
+		}
+
+		if mode == markReserved {
+			alloc.freeCount[order] -= totalBitCount
+		} else {
+			alloc.freeCount[order] += totalBitCount
+		}
+
+		// Each time we descend an order the first bit index and the number
+		// of bits we need to set/unset doubles
+		firstBitIndex <<= 1
+		totalBitCount <<= 1
+	}
 }
 
 // updateHigherOrderBitmaps hierarchically traverses the free bitmaps from lower

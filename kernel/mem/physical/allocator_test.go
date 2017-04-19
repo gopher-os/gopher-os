@@ -8,6 +8,73 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
+func TestUpdateLowerOrderBitmaps(t *testing.T) {
+	type spec struct {
+		page  uint32
+		order Size
+	}
+
+	var specs []spec
+
+	memSizeMB := 2
+	for pages, ord := uint32(1), maxPageOrder-1; ord >= 0 && ord < maxPageOrder; pages, ord = pages<<1, ord-1 {
+		for page := uint32(0); page < pages; page++ {
+			specs = append(specs, spec{page, ord})
+		}
+	}
+
+	for specIndex, spec := range specs {
+		alloc, _ := testAllocator(uint64(memSizeMB))
+		alloc.freeCount[spec.order]++
+		alloc.incFreeCountForLowerOrders(spec.order)
+
+		addr := spec.page << (mem.PageShift + spec.order)
+
+		// Test markReserved
+		alloc.updateLowerOrderBitmaps(uintptr(addr), spec.order, markReserved)
+
+		for ord := Size(0); ord < spec.order; ord++ {
+			if gotFree := alloc.freeCount[ord]; gotFree > 0 {
+				t.Errorf("[spec %d] expected ord(%d) free page count to be 0; got %d", specIndex, ord, gotFree)
+			}
+
+			firstBit := uint32(addr >> uint32(mem.PageShift+ord))
+			totalBits := uint32(1 << (spec.order - ord))
+
+			for bit := firstBit; bit < firstBit+totalBits; bit++ {
+				block := bit >> 6
+				mask := uint64(1 << (63 - (bit & 63)))
+
+				if (alloc.freeBitmap[ord][block] & mask) != mask {
+					t.Errorf("[spec %d] expected ord(%d), block(%d) to have MSB bit %d set", specIndex, ord, block, bit&63)
+				}
+			}
+		}
+
+		// Test markFree
+		alloc.updateLowerOrderBitmaps(uintptr(addr), spec.order, markFree)
+
+		for ord := Size(0); ord < spec.order; ord++ {
+			expFreeCount := uint32(1 << (spec.order - ord))
+			if gotFree := alloc.freeCount[ord]; gotFree != expFreeCount {
+				t.Errorf("[spec %d] expected ord(%d) free page count to be %d; got %d", specIndex, ord, expFreeCount, gotFree)
+			}
+
+			firstBit := uint32(addr >> uint32(mem.PageShift+ord))
+			totalBits := uint32(1 << (spec.order - ord))
+
+			for bit := firstBit; bit < firstBit+totalBits; bit++ {
+				block := bit >> 6
+				mask := uint64(1 << (63 - (bit & 63)))
+
+				if (alloc.freeBitmap[ord][block] & mask) != 0 {
+					t.Errorf("[spec %d] expected ord(%d), block(%d) to have MSB bit %d unset", specIndex, ord, block, bit&63)
+				}
+			}
+		}
+	}
+}
+
 func TestIncFreeCount(t *testing.T) {
 	alloc, _ := testAllocator(1)
 
