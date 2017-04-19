@@ -5,8 +5,44 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/achilleasa/gopher-os/kernel/errors"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
+
+func TestReserveFreePage(t *testing.T) {
+	memSizeMB := 2
+	alloc, _ := testAllocator(uint64(memSizeMB))
+	alloc.incFreeCountForLowerOrders(Size2048k)
+
+	// Asking for an invalid order should return an error
+	if _, err := alloc.reserveFreePage(maxPageOrder); err != errors.ErrInvalidParamValue {
+		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
+	}
+
+	// Allocate all available 4k pages
+	ord0Pages := memSizeMB * 1024 * 1024 / mem.PageSize
+	for i := 0; i < ord0Pages; i++ {
+		addr, err := alloc.reserveFreePage(Size4k)
+		if err != nil {
+			t.Errorf("got unexpected error: %v, while trying to allocate page %d/%d", err, i, ord0Pages)
+			continue
+		}
+
+		expAddr := uintptr(i * mem.PageSize)
+		if addr != expAddr {
+			t.Errorf("expected allocated address for page %d/%d to be 0x%x; got 0x%x", i, ord0Pages, expAddr, addr)
+		}
+	}
+
+	if got := alloc.freeCount[0]; got != 0 {
+		t.Fatalf("expected free count to be set to 0 after allocating all available ord(0) pages; got %d", got)
+	}
+
+	// The next allocation should fail
+	if _, err := alloc.reserveFreePage(Size4k); err != mem.ErrOutOfMemory {
+		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
+	}
+}
 
 func TestUpdateLowerOrderBitmaps(t *testing.T) {
 	type spec struct {
@@ -221,16 +257,18 @@ func TestSetBitmapSizes(t *testing.T) {
 
 func TestSetBitmapPointers(t *testing.T) {
 	alloc, scratchBuf := testAllocator(4)
+
+	// Fill each bitmap entry with a special pattern
 	for _, bitmap := range alloc.freeBitmap {
 		for i := 0; i < len(bitmap); i++ {
-			bitmap[i] = 0
+			bitmap[i] = 0xFEFEFEFEFEFEFEFE
 		}
 	}
 
 	// Check that the entire scratchBuf has been erased
 	for i := 0; i < len(scratchBuf); i++ {
-		if got := scratchBuf[i]; got != 0 {
-			t.Errorf("expected scratchBuf[%d] to be set to 0; got 0x%x", i, got)
+		if got := scratchBuf[i]; got != 0xFE {
+			t.Errorf("expected scratchBuf[%d] to be set to 0xFE; got 0x%x", i, got)
 		}
 	}
 }
@@ -265,13 +303,8 @@ func testAllocator(memInMB uint64) (*buddyAllocator, []byte) {
 		requiredSize += hdr.Len * 8
 	}
 
-	// Allocate scratch buffer and set it to a known pattern
-	scratchBuf := make([]byte, requiredSize)
-	for i := 0; i < len(scratchBuf); i++ {
-		scratchBuf[i] = 0xFF
-	}
-
 	// Setup pointers
+	scratchBuf := make([]byte, requiredSize)
 	alloc.setBitmapPointers(uintptr(unsafe.Pointer(&scratchBuf[0])))
 	return alloc, scratchBuf
 }

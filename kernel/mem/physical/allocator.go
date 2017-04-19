@@ -1,9 +1,11 @@
 package physical
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 
+	"github.com/achilleasa/gopher-os/kernel/errors"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
@@ -61,6 +63,44 @@ type buddyAllocator struct {
 	bitmapSlice [maxPageOrder]reflect.SliceHeader
 }
 
+// reserveFreePage scans the free page bitmaps for the given order, reserves the
+// first available page and returns its address. If no pages at this order are
+// available then this method returns ErrOutOfMemory.
+func (alloc *buddyAllocator) reserveFreePage(order Size) (uintptr, error) {
+	if order >= maxPageOrder {
+		return uintptr(0), errors.ErrInvalidParamValue
+	}
+
+	for blockIndex, block := range alloc.freeBitmap[order] {
+		// Entire block is allocated; skip it
+		if block == math.MaxUint64 {
+			continue
+
+		}
+
+		// Scan the individual bits to find the block and reserve it
+		for bitIndex := uint8(0); bitIndex < 64; bitIndex++ {
+			mask := uint64(1 << (63 - bitIndex))
+
+			// Ignore used bits
+			if (block & mask) != 0 {
+				continue
+			}
+
+			// Mark page as allocated and decrement the free page count for this order
+			alloc.freeBitmap[order][blockIndex] |= mask
+			alloc.freeCount[order]--
+
+			return uintptr(mem.PageSize) * ((uintptr(blockIndex) << 6) + uintptr(bitIndex)), nil
+		}
+	}
+
+	return uintptr(0), mem.ErrOutOfMemory
+}
+
+// updateLowerOrderBitmaps hierarchically traverses the free bitmaps at the orders
+// below the supplied order and depending on the requested reservation mode either
+// sets or unsets the used bits that correspond to the supplied address.
 func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, mode reservationMode) {
 	order--
 
