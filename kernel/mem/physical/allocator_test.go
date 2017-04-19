@@ -12,16 +12,16 @@ func TestIncFreeCount(t *testing.T) {
 	alloc, _ := testAllocator(1)
 
 	// Sanity check; calling with an invalid order should have no effect
-	alloc.incFreeCountForLowerOrders(MaxPageOrder)
-	for ord := 0; ord < MaxPageOrder; ord++ {
+	alloc.incFreeCountForLowerOrders(maxPageOrder)
+	for ord := Size(0); ord < maxPageOrder; ord++ {
 		if got := alloc.freeCount[ord]; got != 0 {
 			t.Fatalf("expected ord(%d) free count to be 0; got %d\n", ord, got)
 		}
 	}
 
-	alloc.incFreeCountForLowerOrders(MaxPageOrder - 1)
-	for ord := uint32(0); ord < MaxPageOrder-2; ord++ {
-		expCount := uint32(1 << (MaxPageOrder - ord - 1))
+	alloc.incFreeCountForLowerOrders(maxPageOrder - 1)
+	for ord := Size(0); ord < maxPageOrder-2; ord++ {
+		expCount := uint32(1 << (maxPageOrder - ord - 1))
 		if got := alloc.freeCount[ord]; got != expCount {
 			t.Fatalf("expected ord(%d) free count to be %d; got %d\n", ord, expCount, got)
 		}
@@ -31,8 +31,8 @@ func TestIncFreeCount(t *testing.T) {
 
 func TestUpdateHigherOrderFlagsForInvalidOrder(t *testing.T) {
 	alloc, _ := testAllocator(1)
-	alloc.updateHigherOrderFlags(0, MaxPageOrder)
-	alloc.updateHigherOrderFlags(0, MaxPageOrder+1)
+	alloc.updateHigherOrderBitmaps(0, maxPageOrder)
+	alloc.updateHigherOrderBitmaps(0, maxPageOrder+1)
 }
 
 func TestUpdateHigherOrderFlags(t *testing.T) {
@@ -52,8 +52,8 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 		block := page / 64
 		blockMask := uint64(1 << (63 - (page % 64)))
 		alloc.freeBitmap[0][block] |= blockMask
-		alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
-		for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+		alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
+		for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 			val := alloc.freeBitmap[ord][bitIndex/64]
 			valMask := uint64(1 << (63 - (bitIndex % 64)))
 			if (val & valMask) == 0 {
@@ -63,8 +63,8 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 
 		// Now clear the ord(0) bit and make sure that all parents are marked as free
 		alloc.freeBitmap[0][block] ^= blockMask
-		alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
-		for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+		alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
+		for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 			val := alloc.freeBitmap[ord][bitIndex/64]
 			if val != 0 {
 				t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
@@ -74,10 +74,10 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 		// Check buddy pages for even pages
 		if page%2 == 0 {
 			// Set the ord(0) bit for the buddy page and check that all parents (starting at ord 1) are marked as reserved
-			// same bits to be set for ord(1 to MaxPageOrder)
+			// same bits to be set for ord(1 to maxPageOrder)
 			alloc.freeBitmap[0][block] |= blockMask >> 1
-			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page>>1, 1; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page>>1, Size(1); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				valMask := uint64(1 << (63 - (bitIndex % 64)))
 				if (val & valMask) == 0 {
@@ -87,8 +87,8 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 
 			// Now clear the ord(0) bit for the buddy page and make sure that all parents are marked as free
 			alloc.freeBitmap[0][block] ^= blockMask >> 1
-			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page, 0; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				if val != 0 {
 					t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
@@ -98,9 +98,9 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 			// Finally mark both buddy pages at ord(0) as used and check that all parents (starting at ord 1) are marked as reserved
 			alloc.freeBitmap[0][block] |= blockMask
 			alloc.freeBitmap[0][block] |= blockMask >> 1
-			alloc.updateHigherOrderFlags(uintptr(page<<mem.PageShift), 0)
-			alloc.updateHigherOrderFlags(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page>>1, 1; ord < MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
+			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
+			for bitIndex, ord := page>>1, Size(1); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				valMask := uint64(1 << (63 - (bitIndex % 64)))
 				if (val & valMask) == 0 {
@@ -114,25 +114,25 @@ func TestUpdateHigherOrderFlags(t *testing.T) {
 func TestSetBitmapSizes(t *testing.T) {
 	specs := []struct {
 		pages         uint64
-		expBitmapSize [MaxPageOrder]int
+		expBitmapSize [maxPageOrder]int
 	}{
 		{
 			1024, // 4mb
-			[MaxPageOrder]int{16, 8, 4, 2, 1, 1, 1, 1, 1, 1},
+			[maxPageOrder]int{16, 8, 4, 2, 1, 1, 1, 1, 1, 1},
 		},
 		{
 			32 * 1024, // 128MB
-			[MaxPageOrder]int{512, 256, 128, 64, 32, 16, 8, 4, 2, 1},
+			[maxPageOrder]int{512, 256, 128, 64, 32, 16, 8, 4, 2, 1},
 		},
 		{
 			1, // 4K
 			// We need a full uint64 for ord(0) and we waste an empty
 			// uint64 for each order due to rounding
-			[MaxPageOrder]int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+			[maxPageOrder]int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 		},
 		{
 			1025, // 4mb + 4k
-			[MaxPageOrder]int{17, 9, 5, 3, 2, 1, 1, 1, 1, 1},
+			[maxPageOrder]int{17, 9, 5, 3, 2, 1, 1, 1, 1, 1},
 		},
 	}
 
@@ -140,7 +140,7 @@ func TestSetBitmapSizes(t *testing.T) {
 		alloc := &buddyAllocator{}
 		alloc.setBitmapSizes(spec.pages)
 
-		for ord := 0; ord < MaxPageOrder; ord++ {
+		for ord := Size(0); ord < maxPageOrder; ord++ {
 			if alloc.bitmapSlice[ord].Len != alloc.bitmapSlice[ord].Cap {
 				t.Errorf("[spec %d] ord(%d): expected slice Len to be equal to the slice Cap; got %d, %d", specIndex, ord, alloc.bitmapSlice[ord].Len, alloc.bitmapSlice[ord].Cap)
 			}
