@@ -184,9 +184,11 @@ func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) 
 	}
 
 	var bitIndex, block, blockMask, childBitIndex, childBlock, childBlockMask uint64
+	var wasReserved bool
 	for bitIndex = uint64(addr) >> (mem.PageShift + order); order < maxPageOrder; order, bitIndex = order+1, bitIndex>>1 {
 		block = bitIndex >> 6
 		blockMask = 1 << (63 - (bitIndex & 63))
+		wasReserved = (alloc.freeBitmap[order][block] & blockMask) == blockMask
 
 		// This bit should be marked as used any of the (ord-1) bits:
 		// (2*bit)+1 or (2*bit)+2 are marked as used. The child mask
@@ -199,8 +201,16 @@ func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) 
 		switch alloc.freeBitmap[order-1][childBlock] & childBlockMask {
 		case 0: // both bits are not set; we just need to clear the bit
 			alloc.freeBitmap[order][block] &^= blockMask
+
+			if wasReserved {
+				alloc.freeCount[order]++
+			}
 		default: // one or both bits are set; we just need to set the bit
 			alloc.freeBitmap[order][block] |= blockMask
+
+			if !wasReserved {
+				alloc.freeCount[order]--
+			}
 		}
 	}
 }

@@ -150,13 +150,51 @@ func TestIncFreeCount(t *testing.T) {
 
 }
 
-func TestUpdateHigherOrderFlagsForInvalidOrder(t *testing.T) {
+func TestUpdateHigherOrderBitmapsForInvalidOrder(t *testing.T) {
 	alloc, _ := testAllocator(1)
 	alloc.updateHigherOrderBitmaps(0, maxPageOrder)
 	alloc.updateHigherOrderBitmaps(0, maxPageOrder+1)
 }
 
-func TestUpdateHigherOrderFlags(t *testing.T) {
+func TestUpdateHigherOrderBitmapsFreeCounterUpdates(t *testing.T) {
+	memSizeMB := uint64(2)
+	alloc, _ := testAllocator(memSizeMB)
+	alloc.freeCount[maxPageOrder-1] = 1
+	alloc.incFreeCountForLowerOrders(maxPageOrder - 1)
+
+	// Flag the first page at ord(0) as used
+	alloc.freeBitmap[0][0] |= (1 << 63)
+	alloc.freeCount[0]--
+
+	// This should reduce the available pages at each level up to and not
+	// including maxPageOrder-1 by 1 page.
+	alloc.updateHigherOrderBitmaps(uintptr(0), Size4k)
+
+	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+
+	for ord := Size8k; ord < Size2048k; ord++ {
+		expFreeCount := uint32((pageCount >> ord) - 1)
+		if got := alloc.freeCount[ord]; got != expFreeCount {
+			t.Errorf("expected free count at ord(%d) to be %d; got %d", ord, expFreeCount, got)
+		}
+	}
+
+	// Flag the first page at ord(0) as free
+	alloc.freeBitmap[0][0] &^= (1 << 63)
+	alloc.freeCount[0]++
+
+	// This should increment the available pages at each level up to
+	// maxPageOrder-1 by 1 page.
+	alloc.updateHigherOrderBitmaps(uintptr(0), Size4k)
+	for ord := Size8k; ord < maxPageOrder; ord++ {
+		expFreeCount := uint32(pageCount >> ord)
+		if got := alloc.freeCount[ord]; got != expFreeCount {
+			t.Errorf("expected free count at ord(%d) to be %d; got %d", ord, expFreeCount, got)
+		}
+	}
+}
+
+func TestUpdateHigherOrderBitmaps(t *testing.T) {
 	memSizeMB := uint64(4)
 	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
 
