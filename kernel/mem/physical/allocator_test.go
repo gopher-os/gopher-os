@@ -9,6 +9,41 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
+func TestAllocatePage(t *testing.T) {
+	memSizeMB := 2
+	alloc, _ := testAllocator(uint64(memSizeMB))
+	alloc.freeCount[maxPageOrder-1] = 1
+
+	// Test invalid param
+	if _, err := alloc.AllocatePage(maxPageOrder); err != errors.ErrInvalidParamValue {
+		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
+	}
+
+	// Allocate all ord(0) pages
+	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+	for i := 0; i < pageCount; i++ {
+		expAddr := uintptr(i * mem.PageSize)
+		addr, err := alloc.AllocatePage(Size4k)
+		if err != nil {
+			t.Errorf("unexpected error while trying to allocate page %d/%d: %v", i, pageCount, err)
+			continue
+		}
+
+		if addr != expAddr {
+			t.Errorf("expected allocated page address for page %d/%d to be %d; got %d", i, pageCount, expAddr, addr)
+		}
+	}
+
+	if got := alloc.freeCount[maxPageOrder-1]; got != 0 {
+		t.Fatalf("expected ord(%d) free count to be 0; got %d", maxPageOrder-1, got)
+	}
+
+	// Allocating another ord(0) page should trigger a failing higher order split
+	if _, err := alloc.AllocatePage(Size4k); err != mem.ErrOutOfMemory {
+		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
+	}
+}
+
 func TestSplitHigherOrderPage(t *testing.T) {
 	memSizeMB := 2
 	alloc, _ := testAllocator(uint64(memSizeMB))
