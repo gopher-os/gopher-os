@@ -9,6 +9,24 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
+func TestSplitHigherOrderPage(t *testing.T) {
+	memSizeMB := 2
+	alloc, _ := testAllocator(uint64(memSizeMB))
+
+	// If we try to split a page with no pages available we will get an error
+	if err := alloc.splitHigherOrderPage(Size4k); err != mem.ErrOutOfMemory {
+		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
+	}
+
+	// Allow the highest order page to be split
+	alloc.freeCount[maxPageOrder-1] = 1
+
+	// Create a split
+	if err := alloc.splitHigherOrderPage(Size4k); err != nil {
+		t.Fatalf("unexpected error while splitting higher order page: %v", err)
+	}
+}
+
 func TestReserveFreePage(t *testing.T) {
 	memSizeMB := 2
 	alloc, _ := testAllocator(uint64(memSizeMB))

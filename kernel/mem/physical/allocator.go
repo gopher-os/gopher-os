@@ -63,6 +63,25 @@ type buddyAllocator struct {
 	bitmapSlice [maxPageOrder]reflect.SliceHeader
 }
 
+// splitHigherOrderPage searches for the first available page with order greater
+// than the requested order. If a free page is found, it is marked as reserved and
+// the free counts for the orders below it are updated accordingly.
+func (alloc *buddyAllocator) splitHigherOrderPage(order Size) error {
+	for order = order + 1; order < maxPageOrder; order++ {
+		if alloc.freeCount[order] == 0 {
+			continue
+		}
+
+		// This order has free pages. Reserve the first available and
+		// make its space available to the order below it
+		alloc.reserveFreePage(order)
+		alloc.incFreeCountForLowerOrders(order)
+		return nil
+	}
+
+	return mem.ErrOutOfMemory
+}
+
 // reserveFreePage scans the free page bitmaps for the given order, reserves the
 // first available page and returns its address. If no pages at this order are
 // available then this method returns ErrOutOfMemory.
