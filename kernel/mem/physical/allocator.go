@@ -149,7 +149,7 @@ func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, m
 	order--
 
 	var (
-		firstBitIndex              uint32 = uint32(addr >> (mem.PageShift + order))
+		firstBitIndex                     = bitmapIndex(addr, order)
 		totalBitCount              uint32 = 2
 		bitsToChange, lastBitIndex uint32
 	)
@@ -208,9 +208,10 @@ func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) 
 		order++
 	}
 
-	var bitIndex, block, blockMask, childBitIndex, childBlock, childBlockMask uint64
+	var bitIndex, block, childBitIndex, childBlock uint32
+	var blockMask, childBlockMask uint64
 	var wasReserved bool
-	for bitIndex = uint64(addr) >> (mem.PageShift + order); order < maxPageOrder; order, bitIndex = order+1, bitIndex>>1 {
+	for bitIndex = bitmapIndex(addr, order); order < maxPageOrder; order, bitIndex = order+1, bitIndex>>1 {
 		block = bitIndex >> 6
 		blockMask = 1 << (63 - (bitIndex & 63))
 		wasReserved = (alloc.freeBitmap[order][block] & blockMask) == blockMask
@@ -290,6 +291,12 @@ func (alloc *buddyAllocator) setBitmapPointers(baseAddr uintptr) {
 		// offset += ordLen * 8 bytes per uint64
 		dataPtr += uintptr(alloc.bitmapSlice[ord].Len << 3)
 	}
+}
+
+// bitmapIndex returns the index of bit in the bitmap for the given order that
+// corresponds to the page located at the given address.
+func bitmapIndex(addr uintptr, order Size) uint32 {
+	return uint32(addr >> (mem.PageShift + order))
 }
 
 // align ensures that v is a multiple of n.
