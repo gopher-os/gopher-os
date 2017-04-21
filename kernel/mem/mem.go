@@ -1,5 +1,12 @@
 package mem
 
+import (
+	"reflect"
+	"unsafe"
+
+	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
+)
+
 const (
 	// PageShift is equal to log2(PageSize). This constant is used when
 	// we need to convert a physical address to a page number (shift right by PageShift)
@@ -53,3 +60,48 @@ func (s Size) Pages() uint32 {
 // ...
 // PageOrder(MaxPageOrder) refers to a page with size PageSize * 2^(MaxPageOrder)
 type PageOrder uint8
+
+var (
+	// Overriden by tests
+	visitMemRegionFn = multiboot.VisitMemRegions
+)
+
+// TotalSystemMemory returns the total amount of free or reserved memory on this
+// system in bytes. The information about the available memory is retrieved using the
+// multiboot package.
+func TotalSystemMemory() Size {
+	var total Size
+	visitMemRegionFn(func(entry *multiboot.MemoryMapEntry) {
+		total += Size(entry.Length)
+	})
+
+	return total
+}
+
+// Memset sets size bytes at the given address to the supplied value. The implementation
+// is based on bytes.Repeat; instead of using a for loop, this function uses
+// log2(size) copy calls which should give us a speed boost as page addresses
+// are always aligned.
+func Memset(addr uintptr, value byte, size uint32) {
+	if size == 0 {
+		return
+	}
+
+	// overlay a slice on top of this address region
+	target := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(size),
+		Cap:  int(size),
+		Data: addr,
+	}))
+
+	// Set first element and make log2(size) optimized copies
+	target[0] = value
+	for index := uint32(1); index < size; index *= 2 {
+		copy(target[index:], target[:index])
+	}
+}
+
+// Align ensures that v is a multiple of n.
+func Align(v uint64, n Size) uint64 {
+	return (v + uint64(n-1)) & ^uint64(n-1)
+}

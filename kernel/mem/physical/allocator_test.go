@@ -11,7 +11,7 @@ import (
 
 func TestAllocatePage(t *testing.T) {
 	defer func() {
-		memsetFn = memset
+		memsetFn = mem.Memset
 	}()
 
 	var memsetCalled bool
@@ -74,7 +74,7 @@ func TestAllocatePage(t *testing.T) {
 
 func TestFreePage(t *testing.T) {
 	defer func() {
-		memsetFn = memset
+		memsetFn = mem.Memset
 	}()
 	memsetFn = func(_ uintptr, _ byte, _ uint32) {}
 
@@ -435,48 +435,6 @@ func TestSetBitmapPointers(t *testing.T) {
 	for i := 0; i < len(scratchBuf); i++ {
 		if got := scratchBuf[i]; got != 0xFE {
 			t.Errorf("expected scratchBuf[%d] to be set to 0xFE; got 0x%x", i, got)
-		}
-	}
-}
-
-func TestAlign(t *testing.T) {
-	specs := []struct {
-		in     uint32
-		n      uint32
-		expOut uint32
-	}{
-		{0, 64, 0},
-		{1, 64, 64},
-		{63, 64, 64},
-		{64, 64, 64},
-		{65, 64, 128},
-	}
-
-	for specIndex, spec := range specs {
-		out := align(spec.in, spec.n)
-		if out != spec.expOut {
-			t.Errorf("[spec %d] expected align(%d, %d) to return %d; got %d", specIndex, spec.in, spec.n, spec.expOut, out)
-		}
-	}
-}
-
-func TestMemset(t *testing.T) {
-	// memset with a 0 size should be a no-op
-	memset(uintptr(0), 0x00, 0)
-
-	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
-		buf := make([]byte, mem.PageSize<<ord)
-		for i := 0; i < len(buf); i++ {
-			buf[i] = 0xFE
-		}
-
-		addr := uintptr(unsafe.Pointer(&buf[0]))
-		memset(addr, 0x00, uint32(len(buf)))
-
-		for i := 0; i < len(buf); i++ {
-			if got := buf[i]; got != 0x00 {
-				t.Errorf("expected ord(%d), byte: %d to be 0x00; got 0x%x", ord, i, got)
-			}
 		}
 	}
 }

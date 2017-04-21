@@ -36,7 +36,7 @@ var (
 	PageAllocator buddyAllocator
 
 	// Overriden by tests
-	memsetFn = memset
+	memsetFn = mem.Memset
 
 	// ErrPageNotAllocated is returned when trying to free a page not marked by the allocator as reserved.
 	ErrPageNotAllocated = errors.KernelError("attempted to free non-allocated page")
@@ -335,38 +335,10 @@ func bitmapIndex(addr uintptr, order mem.PageOrder) uint32 {
 	return uint32(addr >> (mem.PageShift + order))
 }
 
-// align ensures that v is a multiple of n.
-func align(v, n uint32) uint32 {
-	return (v + (n - 1)) & ^(n - 1)
-}
-
 // requiredUint64 returns the number of uint64 required for storing a bitmap
 // of order(ord) for pageCount pages.
 func requiredUint64(pageCount uint32, order mem.PageOrder) int {
 	// requiredBits = pageCount / (2*ord) + pageCount % (2*ord)
-	requiredBits := (pageCount >> order) + (pageCount & ((1 << order) - 1))
-	return int(align(requiredBits, 64) >> 6)
-}
-
-// memset sets size bytes at the given address to the supplied value. The implementation
-// is based on bytes.Repeat; instead of using a for loop, this function uses
-// log2(size) copy calls which should give us a speed boost as page addresses
-// are always aligned.
-func memset(addr uintptr, value byte, size uint32) {
-	if size == 0 {
-		return
-	}
-
-	// overlay a slice on top of this address region
-	target := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-		Len:  int(size),
-		Cap:  int(size),
-		Data: addr,
-	}))
-
-	// Set first element and make log2(size) optimized copies
-	target[0] = value
-	for index := uint32(1); index < size; index *= 2 {
-		copy(target[index:], target[:index])
-	}
+	requiredBits := uint64((pageCount >> order) + (pageCount & ((1 << order) - 1)))
+	return int(mem.Align(requiredBits, 64*mem.Byte) >> 6)
 }
