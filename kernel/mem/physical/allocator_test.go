@@ -72,6 +72,53 @@ func TestAllocatePage(t *testing.T) {
 	}
 }
 
+func TestFreePage(t *testing.T) {
+	defer func() {
+		memsetFn = memset
+	}()
+	memsetFn = func(_ uintptr, _ byte, _ uint32) {}
+
+	memSizeMB := 2
+	alloc, _ := testAllocator(uint64(memSizeMB))
+	alloc.freeCount[maxPageOrder-1] = 1
+
+	// Test invalid param
+	if err := alloc.FreePage(uintptr(0), maxPageOrder); err != errors.ErrInvalidParamValue {
+		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
+	}
+
+	// Test freeing of non-allocated page
+	if err := alloc.FreePage(uintptr(0), Size4k); err != ErrPageNotAllocated {
+		t.Fatalf("expected to get ErrPageNotAllocated; got %v", err)
+	}
+
+	// Allocate and free a page
+	addr, err := alloc.AllocatePage(Size512k, FlagKernel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = alloc.FreePage(addr, Size512k)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check free counts and bitmaps
+	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+	for ord := Size4k; ord < maxPageOrder; ord++ {
+		expFreeCount := uint32(pageCount >> ord)
+		if got := alloc.freeCount[ord]; got != expFreeCount {
+			t.Errorf("expected free count for ord(%d) to be %d; got %d", ord, expFreeCount, got)
+		}
+
+		for blockIndex, block := range alloc.freeBitmap[ord] {
+			if block != 0 {
+				t.Errorf("expected all bits at ord(%d), block(%d) to be marked as free; got %064s", ord, blockIndex, strconv.FormatUint(block, 2))
+			}
+		}
+	}
+}
+
 func TestSplitHigherOrderPage(t *testing.T) {
 	memSizeMB := 2
 	alloc, _ := testAllocator(uint64(memSizeMB))

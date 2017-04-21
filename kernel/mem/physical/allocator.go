@@ -54,6 +54,8 @@ var (
 
 	// Overriden by tests
 	memsetFn = memset
+
+	ErrPageNotAllocated = errors.KernelError("attempted to free non-allocated page")
 )
 
 type buddyAllocator struct {
@@ -109,6 +111,31 @@ func (alloc *buddyAllocator) AllocatePage(order Size, flags Flag) (uintptr, erro
 	}
 
 	return addr, nil
+}
+
+// FreePage releases a previously allocated page with the given size/order.
+func (alloc *buddyAllocator) FreePage(addr uintptr, order Size) error {
+	// Sanity checks
+	if order >= maxPageOrder {
+		return errors.ErrInvalidParamValue
+	}
+
+	bitIndex := bitmapIndex(addr, order)
+	block := bitIndex >> 6
+	mask := uint64(1 << (63 - (bitIndex & 63)))
+	if alloc.freeBitmap[order][block]&mask != mask {
+		return ErrPageNotAllocated
+	}
+
+	// Clear the allocated bit and increase free count for this order
+	alloc.freeBitmap[order][block] &^= mask
+	alloc.freeCount[order]++
+
+	// Propagate the changes to the other orders
+	alloc.updateLowerOrderBitmaps(addr, order, markFree)
+	alloc.updateHigherOrderBitmaps(addr, order)
+
+	return nil
 }
 
 // splitHigherOrderPage searches for the first available page with order greater
