@@ -9,24 +9,6 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
-// Size defines the page sizes that can be allocated by the physical memory allocator.
-type Size uint8
-
-// The list of suported block sizes that can be passed to the allocator.
-const (
-	Size4k Size = iota
-	Size8k
-	Size16k
-	Size32k
-	Size64k
-	Size128k
-	Size256k
-	Size512k
-	Size1024k
-	Size2048k
-	maxPageOrder
-)
-
 // Flag defines the flags that can be passed to AllocatePage.
 type Flag uint16
 
@@ -50,11 +32,13 @@ const (
 )
 
 var (
-	Allocator buddyAllocator
+	// PageAllocator is an allocator instance that deals with page-based allocations.
+	PageAllocator buddyAllocator
 
 	// Overriden by tests
 	memsetFn = memset
 
+	// ErrPageNotAllocated is returned when trying to free a page not marked by the allocator as reserved.
 	ErrPageNotAllocated = errors.KernelError("attempted to free non-allocated page")
 )
 
@@ -63,7 +47,7 @@ type buddyAllocator struct {
 	// Initially, only the last order contains free pages. Having a free
 	// counter allows us to quickly detect when the lower orders have no
 	// pages available so we can immediately start scanning the higher orders.
-	freeCount [maxPageOrder]uint32
+	freeCount [mem.MaxPageOrder + 1]uint32
 
 	// freeBitmap stores the free page bitmap data for each allocation order.
 	// The bitmap for each order is stored as a []uint64. This allows us
@@ -71,7 +55,7 @@ type buddyAllocator struct {
 	// by examining 64 pages at a time (using bitwise ANDs) and only scan
 	// individual bits when we are sure that one of the blocks contains a
 	// free page.
-	freeBitmap [maxPageOrder][]uint64
+	freeBitmap [mem.MaxPageOrder + 1][]uint64
 
 	// bitmapSlice stores the slice structures for the freeBitmap entries.
 	// It allows us to perform 2 passes to allocate their content. The first
@@ -80,14 +64,14 @@ type buddyAllocator struct {
 	// second pass where we scan the available memory blocks looking for a
 	// block that can fit all bitmaps and adjust the slice Data pointers
 	// accordingly.
-	bitmapSlice [maxPageOrder]reflect.SliceHeader
+	bitmapSlice [mem.MaxPageOrder + 1]reflect.SliceHeader
 }
 
 // AllocatePage allocates a page with the given size (order) and returns back
 // its address or an error if no free pages are available.
-func (alloc *buddyAllocator) AllocatePage(order Size, flags Flag) (uintptr, error) {
+func (alloc *buddyAllocator) AllocatePage(order mem.PageOrder, flags Flag) (uintptr, error) {
 	// Sanity checks
-	if order >= maxPageOrder {
+	if order > mem.MaxPageOrder {
 		return uintptr(0), errors.ErrInvalidParamValue
 	}
 
@@ -107,16 +91,16 @@ func (alloc *buddyAllocator) AllocatePage(order Size, flags Flag) (uintptr, erro
 	alloc.updateHigherOrderBitmaps(addr, order)
 
 	if (flags & (FlagClear | FlagDoNotClear)) == FlagClear {
-		memsetFn(addr, 0, mem.PageSize<<order)
+		memsetFn(addr, 0, uint32(mem.PageSize)<<order)
 	}
 
 	return addr, nil
 }
 
 // FreePage releases a previously allocated page with the given size/order.
-func (alloc *buddyAllocator) FreePage(addr uintptr, order Size) error {
+func (alloc *buddyAllocator) FreePage(addr uintptr, order mem.PageOrder) error {
 	// Sanity checks
-	if order >= maxPageOrder {
+	if order > mem.MaxPageOrder {
 		return errors.ErrInvalidParamValue
 	}
 
@@ -141,8 +125,8 @@ func (alloc *buddyAllocator) FreePage(addr uintptr, order Size) error {
 // splitHigherOrderPage searches for the first available page with order greater
 // than the requested order. If a free page is found, it is marked as reserved and
 // the free counts for the orders below it are updated accordingly.
-func (alloc *buddyAllocator) splitHigherOrderPage(order Size) error {
-	for order = order + 1; order < maxPageOrder; order++ {
+func (alloc *buddyAllocator) splitHigherOrderPage(order mem.PageOrder) error {
+	for order = order + 1; order <= mem.MaxPageOrder; order++ {
 		if alloc.freeCount[order] == 0 {
 			continue
 		}
@@ -160,8 +144,8 @@ func (alloc *buddyAllocator) splitHigherOrderPage(order Size) error {
 // reserveFreePage scans the free page bitmaps for the given order, reserves the
 // first available page and returns its address. If no pages at this order are
 // available then this method returns ErrOutOfMemory.
-func (alloc *buddyAllocator) reserveFreePage(order Size) (uintptr, error) {
-	if order >= maxPageOrder {
+func (alloc *buddyAllocator) reserveFreePage(order mem.PageOrder) (uintptr, error) {
+	if order > mem.MaxPageOrder {
 		return uintptr(0), errors.ErrInvalidParamValue
 	}
 
@@ -169,7 +153,6 @@ func (alloc *buddyAllocator) reserveFreePage(order Size) (uintptr, error) {
 		// Entire block is allocated; skip it
 		if block == math.MaxUint64 {
 			continue
-
 		}
 
 		// Scan the individual bits to find the block and reserve it
@@ -195,7 +178,7 @@ func (alloc *buddyAllocator) reserveFreePage(order Size) (uintptr, error) {
 // updateLowerOrderBitmaps hierarchically traverses the free bitmaps at the orders
 // below the supplied order and depending on the requested reservation mode either
 // sets or unsets the used bits that correspond to the supplied address.
-func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, mode reservationMode) {
+func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order mem.PageOrder, mode reservationMode) {
 	order--
 
 	var (
@@ -204,7 +187,7 @@ func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, m
 		bitsToChange, lastBitIndex uint32
 	)
 
-	for ; order >= 0 && order < maxPageOrder; order = order - 1 {
+	for ; order >= 0 && order <= mem.MaxPageOrder; order = order - 1 {
 		lastBitIndex = firstBitIndex + totalBitCount
 		for bitIndex := firstBitIndex; bitIndex < lastBitIndex; bitIndex += bitsToChange {
 			block := bitIndex >> 6
@@ -229,9 +212,12 @@ func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, m
 			}
 		}
 
-		if mode == markReserved {
+		switch {
+		// Initially only the MaxPageOrder free count is > 0; all lower-order free counts are 0.
+		// If we directly allocate a MaxPageOrder page, this can cause an underflow
+		case mode == markReserved && alloc.freeCount[order] >= totalBitCount:
 			alloc.freeCount[order] -= totalBitCount
-		} else {
+		case mode == markFree:
 			alloc.freeCount[order] += totalBitCount
 		}
 
@@ -247,9 +233,9 @@ func (alloc *buddyAllocator) updateLowerOrderBitmaps(addr uintptr, order Size, m
 // to the supplied physical address based on the value of the 2 buddy pages of
 // the order below it. The status of page at ord(N) is set to the OR-ed value
 // of the 2 buddy pages at ord(N-1).
-func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) {
+func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order mem.PageOrder) {
 	// sanity checks
-	if order == maxPageOrder {
+	if order > mem.MaxPageOrder {
 		return
 	}
 
@@ -261,7 +247,7 @@ func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) 
 	var bitIndex, block, childBitIndex, childBlock uint32
 	var blockMask, childBlockMask uint64
 	var wasReserved bool
-	for bitIndex = bitmapIndex(addr, order); order < maxPageOrder; order, bitIndex = order+1, bitIndex>>1 {
+	for bitIndex = bitmapIndex(addr, order); order <= mem.MaxPageOrder; order, bitIndex = order+1, bitIndex>>1 {
 		block = bitIndex >> 6
 		blockMask = 1 << (63 - (bitIndex & 63))
 		wasReserved = (alloc.freeBitmap[order][block] & blockMask) == blockMask
@@ -294,15 +280,15 @@ func (alloc *buddyAllocator) updateHigherOrderBitmaps(addr uintptr, order Size) 
 // incFreeCountForLowerOrders is called when a free page at ord(N) is allocated
 // to update all free page counters for all orders less than or equal to N. The
 // number of free pages that are added to the counters doubles for each order less than N.
-func (alloc *buddyAllocator) incFreeCountForLowerOrders(order Size) {
+func (alloc *buddyAllocator) incFreeCountForLowerOrders(order mem.PageOrder) {
 	// sanity check
-	if order >= maxPageOrder {
+	if order > mem.MaxPageOrder {
 		return
 	}
 
 	// When ord reaches 0; ord - 1 will wrap to MaxUint32 so we need to check for that as well
 	freeCount := uint32(2)
-	for order = order - 1; order >= 0 && order < maxPageOrder; order, freeCount = order-1, freeCount<<1 {
+	for order = order - 1; order >= 0 && order <= mem.MaxPageOrder; order, freeCount = order-1, freeCount<<1 {
 		alloc.freeCount[order] += freeCount
 	}
 }
@@ -310,14 +296,14 @@ func (alloc *buddyAllocator) incFreeCountForLowerOrders(order Size) {
 // setBitmapSizes updates the Len and Cap fields of the allocator's bitmap slice
 // headers to the required number of bits for each allocation order.
 //
-// Given N pages of size mem.PageSize:
-// the bitmap for order(0) uses align(N, 64) bits, one for each block with size (mem.PageSize << 0)
-// the bitmap for order(M) uses ceil(N / M) bits, one for each block with size (mem.PageSize << M)
+// Given N pages of size mem.Pagemem.PageOrder:
+// the bitmap for order(0) uses align(N, 64) bits, one for each block with size (mem.Pagemem.PageOrder << 0)
+// the bitmap for order(M) uses ceil(N / M) bits, one for each block with size (mem.Pagemem.PageOrder << M)
 //
 // Since we use []uint64 for our bitmap entries, this method will pad the required
 // number of bits per order so they are multiples of 64.
-func (alloc *buddyAllocator) setBitmapSizes(pageCount uint64) {
-	for order := Size(0); order < maxPageOrder; order++ {
+func (alloc *buddyAllocator) setBitmapSizes(pageCount uint32) {
+	for order := mem.PageOrder(0); order <= mem.MaxPageOrder; order++ {
 		requiredUint64 := requiredUint64(pageCount, order)
 		alloc.bitmapSlice[order].Cap, alloc.bitmapSlice[order].Len = requiredUint64, requiredUint64
 	}
@@ -334,7 +320,7 @@ func (alloc *buddyAllocator) setBitmapSizes(pageCount uint64) {
 // all freeBitmap entries.
 func (alloc *buddyAllocator) setBitmapPointers(baseAddr uintptr) {
 	var dataPtr = baseAddr
-	for ord := Size(0); ord < maxPageOrder; ord++ {
+	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
 		alloc.bitmapSlice[ord].Data = dataPtr
 		alloc.freeBitmap[ord] = *(*[]uint64)(unsafe.Pointer(&alloc.bitmapSlice[ord]))
 
@@ -345,18 +331,18 @@ func (alloc *buddyAllocator) setBitmapPointers(baseAddr uintptr) {
 
 // bitmapIndex returns the index of bit in the bitmap for the given order that
 // corresponds to the page located at the given address.
-func bitmapIndex(addr uintptr, order Size) uint32 {
+func bitmapIndex(addr uintptr, order mem.PageOrder) uint32 {
 	return uint32(addr >> (mem.PageShift + order))
 }
 
 // align ensures that v is a multiple of n.
-func align(v, n uint64) uint64 {
+func align(v, n uint32) uint32 {
 	return (v + (n - 1)) & ^(n - 1)
 }
 
 // requiredUint64 returns the number of uint64 required for storing a bitmap
 // of order(ord) for pageCount pages.
-func requiredUint64(pageCount uint64, order Size) int {
+func requiredUint64(pageCount uint32, order mem.PageOrder) int {
 	// requiredBits = pageCount / (2*ord) + pageCount % (2*ord)
 	requiredBits := (pageCount >> order) + (pageCount & ((1 << order) - 1))
 	return int(align(requiredBits, 64) >> 6)

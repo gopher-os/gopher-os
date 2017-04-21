@@ -19,18 +19,18 @@ func TestAllocatePage(t *testing.T) {
 		memsetCalled = true
 	}
 
-	memSizeMB := 2
-	alloc, _ := testAllocator(uint64(memSizeMB))
-	alloc.freeCount[maxPageOrder-1] = 1
+	memSize := 2 * mem.Mb
+	alloc, _ := testAllocator(memSize)
+	alloc.freeCount[mem.MaxPageOrder] = 1
 
 	// Test invalid param
-	if _, err := alloc.AllocatePage(maxPageOrder, FlagKernel); err != errors.ErrInvalidParamValue {
+	if _, err := alloc.AllocatePage(mem.MaxPageOrder+1, FlagKernel); err != errors.ErrInvalidParamValue {
 		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
 	}
 
 	// Allocate all ord(0) pages
-	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
-	for i := 0; i < pageCount; i++ {
+	pageCount := memSize.Pages()
+	for i := uint32(0); i < pageCount; i++ {
 		memsetCalled = false
 
 		// Even pages should not be cleared
@@ -39,8 +39,8 @@ func TestAllocatePage(t *testing.T) {
 			flags |= FlagDoNotClear
 		}
 
-		expAddr := uintptr(i * mem.PageSize)
-		addr, err := alloc.AllocatePage(Size4k, flags)
+		expAddr := uintptr(i * uint32(mem.PageSize))
+		addr, err := alloc.AllocatePage(mem.PageOrder(0), flags)
 		if err != nil {
 			t.Errorf("unexpected error while trying to allocate page %d/%d: %v", i, pageCount, err)
 			continue
@@ -62,12 +62,12 @@ func TestAllocatePage(t *testing.T) {
 		}
 	}
 
-	if got := alloc.freeCount[maxPageOrder-1]; got != 0 {
-		t.Fatalf("expected ord(%d) free count to be 0; got %d", maxPageOrder-1, got)
+	if got := alloc.freeCount[mem.MaxPageOrder]; got != 0 {
+		t.Fatalf("expected ord(%d) free count to be 0; got %d", mem.MaxPageOrder, got)
 	}
 
 	// Allocating another ord(0) page should trigger a failing higher order split
-	if _, err := alloc.AllocatePage(Size4k, FlagKernel); err != mem.ErrOutOfMemory {
+	if _, err := alloc.AllocatePage(mem.PageOrder(0), FlagKernel); err != mem.ErrOutOfMemory {
 		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
 	}
 }
@@ -78,34 +78,34 @@ func TestFreePage(t *testing.T) {
 	}()
 	memsetFn = func(_ uintptr, _ byte, _ uint32) {}
 
-	memSizeMB := 2
-	alloc, _ := testAllocator(uint64(memSizeMB))
-	alloc.freeCount[maxPageOrder-1] = 1
+	memSize := 2 * mem.Mb
+	alloc, _ := testAllocator(memSize)
+	alloc.freeCount[mem.MaxPageOrder] = 1
 
 	// Test invalid param
-	if err := alloc.FreePage(uintptr(0), maxPageOrder); err != errors.ErrInvalidParamValue {
+	if err := alloc.FreePage(uintptr(0), mem.MaxPageOrder+1); err != errors.ErrInvalidParamValue {
 		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
 	}
 
 	// Test freeing of non-allocated page
-	if err := alloc.FreePage(uintptr(0), Size4k); err != ErrPageNotAllocated {
+	if err := alloc.FreePage(uintptr(0), mem.PageOrder(0)); err != ErrPageNotAllocated {
 		t.Fatalf("expected to get ErrPageNotAllocated; got %v", err)
 	}
 
 	// Allocate and free a page
-	addr, err := alloc.AllocatePage(Size512k, FlagKernel)
+	addr, err := alloc.AllocatePage(mem.MaxPageOrder, FlagKernel)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = alloc.FreePage(addr, Size512k)
+	err = alloc.FreePage(addr, mem.MaxPageOrder)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Check free counts and bitmaps
-	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
-	for ord := Size4k; ord < maxPageOrder; ord++ {
+	pageCount := memSize.Pages()
+	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
 		expFreeCount := uint32(pageCount >> ord)
 		if got := alloc.freeCount[ord]; got != expFreeCount {
 			t.Errorf("expected free count for ord(%d) to be %d; got %d", ord, expFreeCount, got)
@@ -120,43 +120,43 @@ func TestFreePage(t *testing.T) {
 }
 
 func TestSplitHigherOrderPage(t *testing.T) {
-	memSizeMB := 2
-	alloc, _ := testAllocator(uint64(memSizeMB))
+	memSize := 2 * mem.Mb
+	alloc, _ := testAllocator(memSize)
 
 	// If we try to split a page with no pages available we will get an error
-	if err := alloc.splitHigherOrderPage(Size4k); err != mem.ErrOutOfMemory {
+	if err := alloc.splitHigherOrderPage(mem.PageOrder(0)); err != mem.ErrOutOfMemory {
 		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
 	}
 
 	// Allow the highest order page to be split
-	alloc.freeCount[maxPageOrder-1] = 1
+	alloc.freeCount[mem.MaxPageOrder] = 1
 
 	// Create a split
-	if err := alloc.splitHigherOrderPage(Size4k); err != nil {
+	if err := alloc.splitHigherOrderPage(mem.PageOrder(0)); err != nil {
 		t.Fatalf("unexpected error while splitting higher order page: %v", err)
 	}
 }
 
 func TestReserveFreePage(t *testing.T) {
-	memSizeMB := 2
-	alloc, _ := testAllocator(uint64(memSizeMB))
-	alloc.incFreeCountForLowerOrders(Size2048k)
+	memSize := 2 * mem.Mb
+	alloc, _ := testAllocator(memSize)
+	alloc.incFreeCountForLowerOrders(mem.MaxPageOrder)
 
 	// Asking for an invalid order should return an error
-	if _, err := alloc.reserveFreePage(maxPageOrder); err != errors.ErrInvalidParamValue {
+	if _, err := alloc.reserveFreePage(mem.MaxPageOrder + 1); err != errors.ErrInvalidParamValue {
 		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
 	}
 
 	// Allocate all available 4k pages
-	ord0Pages := memSizeMB * 1024 * 1024 / mem.PageSize
-	for i := 0; i < ord0Pages; i++ {
-		addr, err := alloc.reserveFreePage(Size4k)
+	ord0Pages := memSize.Pages()
+	for i := uint32(0); i < ord0Pages; i++ {
+		addr, err := alloc.reserveFreePage(mem.PageOrder(0))
 		if err != nil {
 			t.Errorf("got unexpected error: %v, while trying to allocate page %d/%d", err, i, ord0Pages)
 			continue
 		}
 
-		expAddr := uintptr(i * mem.PageSize)
+		expAddr := uintptr(i * uint32(mem.PageSize))
 		if addr != expAddr {
 			t.Errorf("expected allocated address for page %d/%d to be 0x%x; got 0x%x", i, ord0Pages, expAddr, addr)
 		}
@@ -167,7 +167,7 @@ func TestReserveFreePage(t *testing.T) {
 	}
 
 	// The next allocation should fail
-	if _, err := alloc.reserveFreePage(Size4k); err != mem.ErrOutOfMemory {
+	if _, err := alloc.reserveFreePage(mem.PageOrder(0)); err != mem.ErrOutOfMemory {
 		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
 	}
 }
@@ -175,20 +175,20 @@ func TestReserveFreePage(t *testing.T) {
 func TestUpdateLowerOrderBitmaps(t *testing.T) {
 	type spec struct {
 		page  uint32
-		order Size
+		order mem.PageOrder
 	}
 
 	var specs []spec
 
-	memSizeMB := 2
-	for pages, ord := uint32(1), maxPageOrder-1; ord >= 0 && ord < maxPageOrder; pages, ord = pages<<1, ord-1 {
+	memSize := 2 * mem.Mb
+	for pages, ord := uint32(1), mem.MaxPageOrder; ord >= 0 && ord <= mem.MaxPageOrder; pages, ord = pages<<1, ord-1 {
 		for page := uint32(0); page < pages; page++ {
 			specs = append(specs, spec{page, ord})
 		}
 	}
 
 	for specIndex, spec := range specs {
-		alloc, _ := testAllocator(uint64(memSizeMB))
+		alloc, _ := testAllocator(memSize)
 		alloc.freeCount[spec.order]++
 		alloc.incFreeCountForLowerOrders(spec.order)
 
@@ -197,7 +197,7 @@ func TestUpdateLowerOrderBitmaps(t *testing.T) {
 		// Test markReserved
 		alloc.updateLowerOrderBitmaps(uintptr(addr), spec.order, markReserved)
 
-		for ord := Size(0); ord < spec.order; ord++ {
+		for ord := mem.PageOrder(0); ord < spec.order; ord++ {
 			if gotFree := alloc.freeCount[ord]; gotFree > 0 {
 				t.Errorf("[spec %d] expected ord(%d) free page count to be 0; got %d", specIndex, ord, gotFree)
 			}
@@ -218,7 +218,7 @@ func TestUpdateLowerOrderBitmaps(t *testing.T) {
 		// Test markFree
 		alloc.updateLowerOrderBitmaps(uintptr(addr), spec.order, markFree)
 
-		for ord := Size(0); ord < spec.order; ord++ {
+		for ord := mem.PageOrder(0); ord < spec.order; ord++ {
 			expFreeCount := uint32(1 << (spec.order - ord))
 			if gotFree := alloc.freeCount[ord]; gotFree != expFreeCount {
 				t.Errorf("[spec %d] expected ord(%d) free page count to be %d; got %d", specIndex, ord, expFreeCount, gotFree)
@@ -240,19 +240,20 @@ func TestUpdateLowerOrderBitmaps(t *testing.T) {
 }
 
 func TestIncFreeCount(t *testing.T) {
-	alloc, _ := testAllocator(1)
+	alloc, _ := testAllocator(1 * mem.Mb)
 
 	// Sanity check; calling with an invalid order should have no effect
-	alloc.incFreeCountForLowerOrders(maxPageOrder)
-	for ord := Size(0); ord < maxPageOrder; ord++ {
+	alloc.incFreeCountForLowerOrders(mem.MaxPageOrder + 1)
+	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
 		if got := alloc.freeCount[ord]; got != 0 {
 			t.Fatalf("expected ord(%d) free count to be 0; got %d\n", ord, got)
 		}
 	}
 
-	alloc.incFreeCountForLowerOrders(maxPageOrder - 1)
-	for ord := Size(0); ord < maxPageOrder-2; ord++ {
-		expCount := uint32(1 << (maxPageOrder - ord - 1))
+	alloc.freeCount[mem.MaxPageOrder] = 1
+	alloc.incFreeCountForLowerOrders(mem.MaxPageOrder)
+	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
+		expCount := uint32(1 << (mem.MaxPageOrder - ord))
 		if got := alloc.freeCount[ord]; got != expCount {
 			t.Fatalf("expected ord(%d) free count to be %d; got %d\n", ord, expCount, got)
 		}
@@ -261,28 +262,27 @@ func TestIncFreeCount(t *testing.T) {
 }
 
 func TestUpdateHigherOrderBitmapsForInvalidOrder(t *testing.T) {
-	alloc, _ := testAllocator(1)
-	alloc.updateHigherOrderBitmaps(0, maxPageOrder)
-	alloc.updateHigherOrderBitmaps(0, maxPageOrder+1)
+	alloc, _ := testAllocator(1 * mem.Mb)
+	alloc.updateHigherOrderBitmaps(0, mem.MaxPageOrder+1)
 }
 
 func TestUpdateHigherOrderBitmapsFreeCounterUpdates(t *testing.T) {
-	memSizeMB := uint64(2)
-	alloc, _ := testAllocator(memSizeMB)
-	alloc.freeCount[maxPageOrder-1] = 1
-	alloc.incFreeCountForLowerOrders(maxPageOrder - 1)
+	memSize := 2 * mem.Mb
+	alloc, _ := testAllocator(memSize)
+	alloc.freeCount[mem.MaxPageOrder] = 1
+	alloc.incFreeCountForLowerOrders(mem.MaxPageOrder)
 
 	// Flag the first page at ord(0) as used
 	alloc.freeBitmap[0][0] |= (1 << 63)
 	alloc.freeCount[0]--
 
 	// This should reduce the available pages at each level up to and not
-	// including maxPageOrder-1 by 1 page.
-	alloc.updateHigherOrderBitmaps(uintptr(0), Size4k)
+	// including mem.MaxPageOrder by 1 page.
+	alloc.updateHigherOrderBitmaps(uintptr(0), mem.PageOrder(0))
 
-	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+	pageCount := memSize.Pages()
 
-	for ord := Size8k; ord < Size2048k; ord++ {
+	for ord := mem.PageOrder(1); ord <= mem.MaxPageOrder; ord++ {
 		expFreeCount := uint32((pageCount >> ord) - 1)
 		if got := alloc.freeCount[ord]; got != expFreeCount {
 			t.Errorf("expected free count at ord(%d) to be %d; got %d", ord, expFreeCount, got)
@@ -294,9 +294,9 @@ func TestUpdateHigherOrderBitmapsFreeCounterUpdates(t *testing.T) {
 	alloc.freeCount[0]++
 
 	// This should increment the available pages at each level up to
-	// maxPageOrder-1 by 1 page.
-	alloc.updateHigherOrderBitmaps(uintptr(0), Size4k)
-	for ord := Size8k; ord < maxPageOrder; ord++ {
+	// mem.MaxPageOrder by 1 page.
+	alloc.updateHigherOrderBitmaps(uintptr(0), mem.PageOrder(0))
+	for ord := mem.PageOrder(1); ord <= mem.MaxPageOrder; ord++ {
 		expFreeCount := uint32(pageCount >> ord)
 		if got := alloc.freeCount[ord]; got != expFreeCount {
 			t.Errorf("expected free count at ord(%d) to be %d; got %d", ord, expFreeCount, got)
@@ -305,12 +305,12 @@ func TestUpdateHigherOrderBitmapsFreeCounterUpdates(t *testing.T) {
 }
 
 func TestUpdateHigherOrderBitmaps(t *testing.T) {
-	memSizeMB := uint64(4)
-	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
+	memSize := 4 * mem.Mb
+	pageCount := memSize.Pages()
 
-	alloc, _ := testAllocator(memSizeMB)
+	alloc, _ := testAllocator(memSize)
 
-	for page := uint64(0); page < pageCount; page++ {
+	for page := uint32(0); page < pageCount; page++ {
 		for _, bitmap := range alloc.freeBitmap {
 			for i := 0; i < len(bitmap); i++ {
 				bitmap[i] = 0
@@ -322,7 +322,7 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 		blockMask := uint64(1 << (63 - (page % 64)))
 		alloc.freeBitmap[0][block] |= blockMask
 		alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
-		for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+		for bitIndex, ord := page, mem.PageOrder(0); ord <= mem.MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 			val := alloc.freeBitmap[ord][bitIndex/64]
 			valMask := uint64(1 << (63 - (bitIndex % 64)))
 			if (val & valMask) == 0 {
@@ -333,7 +333,7 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 		// Now clear the ord(0) bit and make sure that all parents are marked as free
 		alloc.freeBitmap[0][block] ^= blockMask
 		alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
-		for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+		for bitIndex, ord := page, mem.PageOrder(0); ord <= mem.MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 			val := alloc.freeBitmap[ord][bitIndex/64]
 			if val != 0 {
 				t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
@@ -346,7 +346,7 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 			// same bits to be set for ord(1 to maxPageOrder)
 			alloc.freeBitmap[0][block] |= blockMask >> 1
 			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page>>1, Size(1); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			for bitIndex, ord := page>>1, mem.PageOrder(1); ord <= mem.MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				valMask := uint64(1 << (63 - (bitIndex % 64)))
 				if (val & valMask) == 0 {
@@ -357,7 +357,7 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 			// Now clear the ord(0) bit for the buddy page and make sure that all parents are marked as free
 			alloc.freeBitmap[0][block] ^= blockMask >> 1
 			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page, Size(0); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			for bitIndex, ord := page, mem.PageOrder(0); ord <= mem.MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				if val != 0 {
 					t.Errorf("[page %04d] expected [ord %d, block %d, bit %d] to be 0; got block value %064s", page, ord, bitIndex/64, 63-(bitIndex%64), strconv.FormatUint(val, 2))
@@ -369,7 +369,7 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 			alloc.freeBitmap[0][block] |= blockMask >> 1
 			alloc.updateHigherOrderBitmaps(uintptr(page<<mem.PageShift), 0)
 			alloc.updateHigherOrderBitmaps(uintptr((page+1)<<mem.PageShift), 0)
-			for bitIndex, ord := page>>1, Size(1); ord < maxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
+			for bitIndex, ord := page>>1, mem.PageOrder(1); ord <= mem.MaxPageOrder; bitIndex, ord = bitIndex>>1, ord+1 {
 				val := alloc.freeBitmap[ord][bitIndex/64]
 				valMask := uint64(1 << (63 - (bitIndex % 64)))
 				if (val & valMask) == 0 {
@@ -382,34 +382,34 @@ func TestUpdateHigherOrderBitmaps(t *testing.T) {
 
 func TestSetBitmapSizes(t *testing.T) {
 	specs := []struct {
-		pages         uint64
-		expBitmapSize [maxPageOrder]int
+		size          mem.Size
+		expBitmapSize [mem.MaxPageOrder + 1]int
 	}{
 		{
-			1024, // 4mb
-			[maxPageOrder]int{16, 8, 4, 2, 1, 1, 1, 1, 1, 1},
+			4 * mem.Mb,
+			[mem.MaxPageOrder + 1]int{16, 8, 4, 2, 1, 1, 1, 1, 1, 1},
 		},
 		{
-			32 * 1024, // 128MB
-			[maxPageOrder]int{512, 256, 128, 64, 32, 16, 8, 4, 2, 1},
+			128 * mem.Mb,
+			[mem.MaxPageOrder + 1]int{512, 256, 128, 64, 32, 16, 8, 4, 2, 1},
 		},
 		{
-			1, // 4K
+			4 * mem.Kb,
 			// We need a full uint64 for ord(0) and we waste an empty
 			// uint64 for each order due to rounding
-			[maxPageOrder]int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+			[mem.MaxPageOrder + 1]int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 		},
 		{
-			1025, // 4mb + 4k
-			[maxPageOrder]int{17, 9, 5, 3, 2, 1, 1, 1, 1, 1},
+			4*mem.Mb + 4*mem.Kb,
+			[mem.MaxPageOrder + 1]int{17, 9, 5, 3, 2, 1, 1, 1, 1, 1},
 		},
 	}
 
 	for specIndex, spec := range specs {
 		alloc := &buddyAllocator{}
-		alloc.setBitmapSizes(spec.pages)
+		alloc.setBitmapSizes(spec.size.Pages())
 
-		for ord := Size(0); ord < maxPageOrder; ord++ {
+		for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
 			if alloc.bitmapSlice[ord].Len != alloc.bitmapSlice[ord].Cap {
 				t.Errorf("[spec %d] ord(%d): expected slice Len to be equal to the slice Cap; got %d, %d", specIndex, ord, alloc.bitmapSlice[ord].Len, alloc.bitmapSlice[ord].Cap)
 			}
@@ -422,7 +422,7 @@ func TestSetBitmapSizes(t *testing.T) {
 }
 
 func TestSetBitmapPointers(t *testing.T) {
-	alloc, scratchBuf := testAllocator(4)
+	alloc, scratchBuf := testAllocator(4 * mem.Mb)
 
 	// Fill each bitmap entry with a special pattern
 	for _, bitmap := range alloc.freeBitmap {
@@ -441,9 +441,9 @@ func TestSetBitmapPointers(t *testing.T) {
 
 func TestAlign(t *testing.T) {
 	specs := []struct {
-		in     uint64
-		n      uint64
-		expOut uint64
+		in     uint32
+		n      uint32
+		expOut uint32
 	}{
 		{0, 64, 0},
 		{1, 64, 64},
@@ -464,7 +464,7 @@ func TestMemset(t *testing.T) {
 	// memset with a 0 size should be a no-op
 	memset(uintptr(0), 0x00, 0)
 
-	for ord := Size4k; ord < maxPageOrder; ord++ {
+	for ord := mem.PageOrder(0); ord <= mem.MaxPageOrder; ord++ {
 		buf := make([]byte, mem.PageSize<<ord)
 		for i := 0; i < len(buf); i++ {
 			buf[i] = 0xFE
@@ -481,9 +481,9 @@ func TestMemset(t *testing.T) {
 	}
 }
 
-func testAllocator(memInMB uint64) (*buddyAllocator, []byte) {
+func testAllocator(memSize mem.Size) (*buddyAllocator, []byte) {
 	alloc := &buddyAllocator{}
-	alloc.setBitmapSizes(memInMB * 1024 * 1024 / mem.PageSize)
+	alloc.setBitmapSizes(memSize.Pages())
 
 	requiredSize := 0
 	for _, hdr := range alloc.bitmapSlice {
