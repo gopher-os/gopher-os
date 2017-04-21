@@ -311,3 +311,26 @@ func requiredUint64(pageCount uint64, order Size) int {
 	requiredBits := (pageCount >> order) + (pageCount & ((1 << order) - 1))
 	return int(align(requiredBits, 64) >> 6)
 }
+
+// memset sets size bytes at the given address to the supplied value. The implementation
+// is based on bytes.Repeat; instead of using a for loop, this function uses
+// log2(size) copy calls which should give us a speed boost as page addresses
+// are always aligned.
+func memset(addr uintptr, value byte, size uint32) {
+	if size == 0 {
+		return
+	}
+
+	// overlay a slice on top of this address region
+	target := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(size),
+		Cap:  int(size),
+		Data: addr,
+	}))
+
+	// Set first element and make log2(size) optimized copies
+	target[0] = value
+	for index := uint32(1); index < size; index *= 2 {
+		copy(target[index:], target[:index])
+	}
+}

@@ -385,6 +385,27 @@ func TestAlign(t *testing.T) {
 	}
 }
 
+func TestMemset(t *testing.T) {
+	// memset with a 0 size should be a no-op
+	memset(uintptr(0), 0x00, 0)
+
+	for ord := Size4k; ord < maxPageOrder; ord++ {
+		buf := make([]byte, mem.PageSize<<ord)
+		for i := 0; i < len(buf); i++ {
+			buf[i] = 0xFE
+		}
+
+		addr := uintptr(unsafe.Pointer(&buf[0]))
+		memset(addr, 0x00, uint32(len(buf)))
+
+		for i := 0; i < len(buf); i++ {
+			if got := buf[i]; got != 0x00 {
+				t.Errorf("expected ord(%d), byte: %d to be 0x00; got 0x%x", ord, i, got)
+			}
+		}
+	}
+}
+
 func testAllocator(memInMB uint64) (*buddyAllocator, []byte) {
 	alloc := &buddyAllocator{}
 	alloc.setBitmapSizes(memInMB * 1024 * 1024 / mem.PageSize)
