@@ -27,6 +27,21 @@ const (
 	maxPageOrder
 )
 
+// Flag defines the flags that can be passed to AllocatePage.
+type Flag uint16
+
+const (
+	// FlagKernel requests a page to be used inside kernel code. The contents
+	// of the page will be cleared before it is returned.
+	FlagKernel Flag = FlagClear
+
+	// FlagClear instructs the allocator to clear the page contents.
+	FlagClear = 1 << iota
+
+	// FlagDoNotClear instructs the allocator not to clear the page contents.
+	FlagDoNotClear
+)
+
 type reservationMode uint8
 
 const (
@@ -36,6 +51,9 @@ const (
 
 var (
 	Allocator buddyAllocator
+
+	// Overriden by tests
+	memsetFn = memset
 )
 
 type buddyAllocator struct {
@@ -65,7 +83,7 @@ type buddyAllocator struct {
 
 // AllocatePage allocates a page with the given size (order) and returns back
 // its address or an error if no free pages are available.
-func (alloc *buddyAllocator) AllocatePage(order Size) (uintptr, error) {
+func (alloc *buddyAllocator) AllocatePage(order Size, flags Flag) (uintptr, error) {
 	// Sanity checks
 	if order >= maxPageOrder {
 		return uintptr(0), errors.ErrInvalidParamValue
@@ -85,6 +103,11 @@ func (alloc *buddyAllocator) AllocatePage(order Size) (uintptr, error) {
 
 	alloc.updateLowerOrderBitmaps(addr, order, markReserved)
 	alloc.updateHigherOrderBitmaps(addr, order)
+
+	if (flags & (FlagClear | FlagDoNotClear)) == FlagClear {
+		memsetFn(addr, 0, mem.PageSize<<order)
+	}
+
 	return addr, nil
 }
 

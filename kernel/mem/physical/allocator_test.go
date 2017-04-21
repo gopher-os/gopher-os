@@ -10,20 +10,37 @@ import (
 )
 
 func TestAllocatePage(t *testing.T) {
+	defer func() {
+		memsetFn = memset
+	}()
+
+	var memsetCalled bool
+	memsetFn = func(_ uintptr, _ byte, _ uint32) {
+		memsetCalled = true
+	}
+
 	memSizeMB := 2
 	alloc, _ := testAllocator(uint64(memSizeMB))
 	alloc.freeCount[maxPageOrder-1] = 1
 
 	// Test invalid param
-	if _, err := alloc.AllocatePage(maxPageOrder); err != errors.ErrInvalidParamValue {
+	if _, err := alloc.AllocatePage(maxPageOrder, FlagKernel); err != errors.ErrInvalidParamValue {
 		t.Fatalf("expected to get ErrInvalidParamValue; got %v", err)
 	}
 
 	// Allocate all ord(0) pages
 	pageCount := memSizeMB * 1024 * 1024 >> mem.PageShift
 	for i := 0; i < pageCount; i++ {
+		memsetCalled = false
+
+		// Even pages should not be cleared
+		flags := FlagKernel
+		if i%2 == 0 {
+			flags |= FlagDoNotClear
+		}
+
 		expAddr := uintptr(i * mem.PageSize)
-		addr, err := alloc.AllocatePage(Size4k)
+		addr, err := alloc.AllocatePage(Size4k, flags)
 		if err != nil {
 			t.Errorf("unexpected error while trying to allocate page %d/%d: %v", i, pageCount, err)
 			continue
@@ -32,6 +49,17 @@ func TestAllocatePage(t *testing.T) {
 		if addr != expAddr {
 			t.Errorf("expected allocated page address for page %d/%d to be %d; got %d", i, pageCount, expAddr, addr)
 		}
+
+		switch i % 2 {
+		case 0:
+			if memsetCalled {
+				t.Errorf("page: %d; expected memset not to be called when FlagDoNotClear is specified", i)
+			}
+		default:
+			if !memsetCalled {
+				t.Errorf("page: %d; expected memset to be called", i)
+			}
+		}
 	}
 
 	if got := alloc.freeCount[maxPageOrder-1]; got != 0 {
@@ -39,7 +67,7 @@ func TestAllocatePage(t *testing.T) {
 	}
 
 	// Allocating another ord(0) page should trigger a failing higher order split
-	if _, err := alloc.AllocatePage(Size4k); err != mem.ErrOutOfMemory {
+	if _, err := alloc.AllocatePage(Size4k, FlagKernel); err != mem.ErrOutOfMemory {
 		t.Fatalf("expected to get ErrOutOfMemory; got %v", err)
 	}
 }
