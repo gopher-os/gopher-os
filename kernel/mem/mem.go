@@ -61,23 +61,6 @@ func (s Size) Pages() uint32 {
 // PageOrder(MaxPageOrder) refers to a page with size PageSize * 2^(MaxPageOrder)
 type PageOrder uint8
 
-var (
-	// Overriden by tests
-	visitMemRegionFn = multiboot.VisitMemRegions
-)
-
-// TotalSystemMemory returns the total amount of free or reserved memory on this
-// system in bytes. The information about the available memory is retrieved using the
-// multiboot package.
-func TotalSystemMemory() Size {
-	var total Size
-	visitMemRegionFn(func(entry *multiboot.MemoryMapEntry) {
-		total += Size(entry.Length)
-	})
-
-	return total
-}
-
 // Memset sets size bytes at the given address to the supplied value. The implementation
 // is based on bytes.Repeat; instead of using a for loop, this function uses
 // log2(size) copy calls which should give us a speed boost as page addresses
@@ -104,4 +87,21 @@ func Memset(addr uintptr, value byte, size uint32) {
 // Align ensures that v is a multiple of n.
 func Align(v uint64, n Size) uint64 {
 	return (v + uint64(n-1)) & ^uint64(n-1)
+}
+
+var (
+	// Overriden by tests
+	visitMemRegionFn = multiboot.VisitMemRegions
+)
+
+// TotalSystemMemory returns the total amount of free or reserved memory on this
+// system in bytes. The information about the available memory is retrieved using the
+// multiboot package.
+func TotalSystemMemory() Size {
+	var total Size
+	visitMemRegionFn(func(entry *multiboot.MemoryMapEntry) {
+		total += Size(entry.Length)
+	})
+
+	return total
 }

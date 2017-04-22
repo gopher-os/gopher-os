@@ -3,6 +3,8 @@ package mem
 import (
 	"testing"
 	"unsafe"
+
+	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 )
 
 func TestSizeToOrder(t *testing.T) {
@@ -79,5 +81,34 @@ func TestMemset(t *testing.T) {
 				t.Errorf("expected ord(%d), byte: %d to be 0x00; got 0x%x", ord, i, got)
 			}
 		}
+	}
+}
+
+func TestTotalSystemMemory(t *testing.T) {
+	pageList := []multiboot.MemoryMapEntry{
+		{Length: 1024},
+		{Length: 2049},
+		{Length: 31234},
+		{Length: 4096},
+	}
+
+	var expTotal Size
+	for _, p := range pageList {
+		expTotal += Size(p.Length)
+	}
+
+	orig := visitMemRegionFn
+	defer func() {
+		visitMemRegionFn = orig
+	}()
+
+	visitMemRegionFn = func(visitor multiboot.MemRegionVisitor) {
+		for _, p := range pageList {
+			visitor(&p)
+		}
+	}
+
+	if total := TotalSystemMemory(); total != expTotal {
+		t.Fatalf("expected returned total memory to be %d; got %d", expTotal, total)
 	}
 }
