@@ -6,8 +6,87 @@ import (
 	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel/errors"
+	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
+
+func TestInitAllocatorError(t *testing.T) {
+	memSize := 2 * mem.Mb
+	alloc := &buddyAllocator{}
+
+	// Setup fake mem regions
+	regions := []multiboot.MemoryMapEntry{
+		// Not large-enough
+		{Length: 1, Type: multiboot.MemAvailable},
+		// Reserved blocks
+		{Length: uint64(128 * mem.Mb), Type: multiboot.MemReserved},
+		{Length: uint64(128 * mem.Mb), Type: multiboot.MemAcpiReclaimable},
+		{Length: uint64(128 * mem.Mb), Type: multiboot.MemNvs},
+	}
+
+	orig := visitMemRegionFn
+	defer func() {
+		visitMemRegionFn = orig
+	}()
+
+	visitMemRegionFn = func(visitor multiboot.MemRegionVisitor) {
+		for _, r := range regions {
+			visitor(&r)
+		}
+	}
+
+	if err := alloc.Init(memSize); err != mem.ErrOutOfMemory {
+		t.Fatalf("expected allocator to return ErrOutOfMemory; got :%v", err)
+	}
+}
+
+func TestInitAllocator(t *testing.T) {
+	memSize := 2 * mem.Mb
+	alloc, scratchBuf := testAllocator(memSize)
+	bitmapAddr := uint64(uintptr(unsafe.Pointer(&scratchBuf[0])))
+	requiredSpace := uint64(len(scratchBuf))
+
+	// Setup fake mem regions
+	regions := []multiboot.MemoryMapEntry{
+		// Rserved block
+		{PhysAddress: bitmapAddr, Length: requiredSpace, Type: multiboot.MemReserved},
+		// Not large-enough
+		{PhysAddress: bitmapAddr + 8, Length: 1, Type: multiboot.MemAvailable},
+		// Not large-enough if we align the physical address to a page boundary
+		{PhysAddress: bitmapAddr + 1, Length: requiredSpace, Type: multiboot.MemAvailable},
+		// Available aligned block pointing to the reserved scratchBuf
+		{PhysAddress: bitmapAddr, Length: requiredSpace, Type: multiboot.MemAvailable},
+		// A free memory overlay to test our code
+		{PhysAddress: 0, Length: uint64(memSize), Type: multiboot.MemAvailable},
+	}
+
+	orig := visitMemRegionFn
+	defer func() {
+		visitMemRegionFn = orig
+	}()
+
+	visitMemRegionFn = func(visitor multiboot.MemRegionVisitor) {
+		for _, r := range regions {
+			visitor(&r)
+		}
+	}
+
+	if err := alloc.Init(memSize); err != nil {
+		t.Fatal(err)
+	}
+
+	if exp, got := uint32(1), alloc.freeCount[mem.MaxPageOrder]; got != exp {
+		t.Fatalf("expected free count at ord(%d) to be %d; got %d", mem.MaxPageOrder, exp, got)
+	}
+
+	// We should be able to allocate all free memory in the last block; we use FlagDoNotClear
+	// as this memory is not actually available and trying to memset it will cause a panic
+	for index := uint32(0); index < memSize.Pages(); index++ {
+		if _, err := alloc.AllocatePage(mem.PageOrder(0), FlagKernel&FlagDoNotClear); err != nil {
+			t.Fatalf("got unexpected error while trying to allocate page %d/%d: %v", index, memSize.Pages(), err)
+		}
+	}
+}
 
 func TestAllocatePage(t *testing.T) {
 	defer func() {

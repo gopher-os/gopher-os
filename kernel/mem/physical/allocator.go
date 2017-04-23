@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel/errors"
+	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
@@ -36,7 +37,8 @@ var (
 	PageAllocator buddyAllocator
 
 	// Overriden by tests
-	memsetFn = mem.Memset
+	memsetFn         = mem.Memset
+	visitMemRegionFn = multiboot.VisitMemRegions
 
 	// ErrPageNotAllocated is returned when trying to free a page not marked by the allocator as reserved.
 	ErrPageNotAllocated = errors.KernelError("attempted to free non-allocated page")
@@ -65,6 +67,93 @@ type buddyAllocator struct {
 	// block that can fit all bitmaps and adjust the slice Data pointers
 	// accordingly.
 	bitmapSlice [mem.MaxPageOrder + 1]reflect.SliceHeader
+}
+
+// Init bootstraps the physical page allocator. The initialization sequence
+// consists of 3 phases:
+//
+// The available memory is converted into pages and then the allocator estimates
+// the required space for storing the free page bitmaps for those pages. The
+// allocator then scans through the available memory blocks looking for the first
+// available free region that is large enough to store the bitmap data.
+//
+// Once a large-enough memory block has been found, the allocator will setup the
+// bitmap slices so that their contents are mapped to the selected memory block.
+//
+// Finally, the allocator will perform another pass where all memory regions are
+// examined and the appropriate bitmaps are marked as free or reserved.
+//
+// If the allocator cannot find a free memory block for storing its bitmaps, an
+// error will be returned.
+func (alloc *buddyAllocator) Init(totalMemory mem.Size) error {
+	var alignment = 8 * mem.Byte
+
+	alloc.setBitmapSizes(totalMemory.Pages())
+
+	// Each slice entry is a uint64 and takes 8 bytes of space
+	var requiredSpace uint64
+	for _, slice := range alloc.bitmapSlice {
+		requiredSpace += uint64(slice.Len << 3)
+	}
+
+	// Find a block large enough to hold the bitmap data
+	var foundRegion bool
+	var alignedBitmapAddr uint64
+	visitMemRegionFn(func(entry *multiboot.MemoryMapEntry) {
+		if foundRegion || entry.Type != multiboot.MemAvailable {
+			return
+		}
+
+		// Our bitmap data needs to be aligned to a qword boundary; when
+		// we align the physAddr, the actual available region length may
+		// decrease so we need to take that into account
+		alignedAddr := mem.Align(entry.PhysAddress, alignment)
+		if entry.Length-(alignedAddr-entry.PhysAddress) < requiredSpace {
+			return
+		}
+
+		foundRegion = true
+		alignedBitmapAddr = alignedAddr
+	})
+
+	if !foundRegion {
+		return mem.ErrOutOfMemory
+	}
+
+	// Overlay the bitmaps to the selected region
+	alloc.setBitmapPointers(uintptr(alignedBitmapAddr))
+
+	// Mark all bitmaps as reseved
+	mem.Memset(uintptr(alignedBitmapAddr), 0xFF, uint32(requiredSpace))
+
+	// Scan all free memory regions marking their MaxPageOrder block as available
+	maxOrderPageSize := uint64(mem.PageSize << mem.MaxPageOrder)
+	visitMemRegionFn(func(entry *multiboot.MemoryMapEntry) {
+		if entry.Type != multiboot.MemAvailable {
+			return
+		}
+
+		// Align physical address and decrease its available length if this
+		// is where we store our bitmap data.
+		alignedAddr := mem.Align(entry.PhysAddress, alignment)
+		if alignedAddr == alignedBitmapAddr {
+			alignedAddr = mem.Align(alignedAddr+requiredSpace, alignment)
+		}
+		regionLen := entry.Length - (alignedAddr - entry.PhysAddress)
+
+		pageBlocks := regionLen / maxOrderPageSize
+		for index := uint64(0); index < pageBlocks; index++ {
+			blockAddr := alignedAddr + (index * maxOrderPageSize)
+			bitIndex := bitmapIndex(uintptr(blockAddr), mem.MaxPageOrder)
+			block := bitIndex >> 6
+			blockOffset := bitIndex & 63
+
+			alloc.freeBitmap[mem.MaxPageOrder][block] &^= (1 << (63 - blockOffset))
+			alloc.freeCount[mem.MaxPageOrder]++
+		}
+	})
+
+	return nil
 }
 
 // AllocatePage allocates a page with the given size (order) and returns back
