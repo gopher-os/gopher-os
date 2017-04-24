@@ -27,6 +27,7 @@ align 4
 MULTIBOOT_MAGIC equ 0x36d76289
 
 err_unsupported_bootloader db '[rt0] kernel not loaded by multiboot-compliant bootloader', 0
+err_sse_not_available db '[rt0] kernel requires a CPU with SSE support', 0
 err_kmain_returned db '[rt0] kMain returned; halting system', 0
 
 ;------------------------------------------------------------------------------
@@ -50,6 +51,9 @@ _rt0_entry:
 	; Initalize our stack by pointing ESP to the BSS-allocated stack. In x86,
 	; stack grows downwards so we need to point ESP to stack_top
 	mov esp, stack_top
+
+	; Enable SSE
+	call _rt0_enable_sse
 
  	; Load initial GDT
  	call _rt0_load_gdt
@@ -162,3 +166,34 @@ NULL_SEG equ gdt0_nil_seg - gdt0
 CS_SEG   equ gdt0_cs_seg - gdt0
 DS_SEG   equ gdt0_ds_seg - gdt0
 GS_SEG   equ gdt0_gs_seg - gdt0
+
+;------------------------------------------------------------------------------
+; Enable SSE support. Code taken from:
+; http://wiki.osdev.org/SSE#Checking_for_SSE
+;------------------------------------------------------------------------------
+_rt0_enable_sse:
+	pushad
+
+	; check for SSE
+	mov eax, 0x1
+	cpuid
+	test edx, 1<<25
+	jz .no_sse
+
+	; enable SSE
+	mov eax, cr0
+	and ax, 0xFFFB      ; clear coprocessor emulation CR0.EM
+	or ax, 0x2          ; set coprocessor monitoring  CR0.MP
+	mov cr0, eax
+	mov eax, cr4
+	or ax, 3 << 9       ; set CR4.OSFXSR and CR4.OSXMMEXCPT at the same time
+	mov cr4, eax
+
+	popad
+	ret
+.no_sse:
+	mov edi, err_sse_not_available
+	call write_string
+	
+	cli
+	hlt
