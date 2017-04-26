@@ -1,0 +1,39 @@
+VMA = PAGE_OFFSET + LOAD_ADDRESS;
+
+ENTRY(_rt0_32_entry)
+
+SECTIONS {
+	/* Set the kernel VMA at PAGE_OFFSET + 1M 
+	 * but load it at physical address 1M */
+	. = VMA;
+
+	.text BLOCK(4K) : AT(ADDR(.text) - PAGE_OFFSET)
+	{
+		/* The multiboot header must be present in the first 4K of the kernel 
+		 * image so that the bootloader can find it */
+                *(.multiboot_header)
+		
+		*(.rt0)
+		
+		*(.text)
+	}
+
+	/* Read-only data. */
+	.rodata ALIGN(4K) : AT(ADDR(.rodata) - PAGE_OFFSET)
+	{
+		*(.rodata)
+	}
+
+	/* Read-write data (initialized) */
+	.data ALIGN(4K) : AT(ADDR(.data) - PAGE_OFFSET)
+	{
+		*(.data)
+	}
+	
+	/* Read-write data (zeroed) */
+	.bss ALIGN(4K) : AT(ADDR(.bss) - PAGE_OFFSET)
+	{
+		*(COMMON)
+		*(.bss)
+	}
+}
