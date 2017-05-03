@@ -1,5 +1,5 @@
 OS = $(shell uname -s)
-ARCH := x86
+ARCH := x86_64
 BUILD_DIR := build
 BUILD_ABS_DIR := $(CURDIR)/$(BUILD_DIR)
 
@@ -13,10 +13,10 @@ LD := ld
 AS := nasm
 
 GOOS := linux
-GOARCH := 386
+GOARCH := amd64
 
-LD_FLAGS := -n -melf_i386 -T arch/$(ARCH)/script/linker.ld -static --no-ld-generated-unwind-info
-AS_FLAGS := -g -f elf32 -F dwarf -I arch/$(ARCH)/asm/
+LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
+AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/
 
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
@@ -28,7 +28,7 @@ asm_obj_files := $(patsubst arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/
 
 kernel: binutils_version_check $(kernel_target)
 
-$(kernel_target): $(asm_obj_files) go.o
+$(kernel_target): $(asm_obj_files) linker_script go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
 
@@ -36,14 +36,14 @@ go.o:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[go] compiling go sources into a standalone .o file"
-	@GOARCH=386 GOOS=linux go build -n 2>&1 | sed \
+	@GOARCH=$(GOARCH) GOOS=$(GOOS) go build -n 2>&1 | sed \
 	    -e "1s|^|set -e\n|" \
-	    -e "1s|^|export GOOS=linux\n|" \
-	    -e "1s|^|export GOARCH=386\n|" \
+	    -e "1s|^|export GOOS=$(GOOS)\n|" \
+	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
 	    -e "1s|^|WORK='$(BUILD_ABS_DIR)'\n|" \
 	    -e "1s|^|alias pack='go tool pack'\n|" \
 	    -e "/^mv/d" \
-	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostdlib' -extld|g" \
+	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostartfiles -nodefaultlibs -nostdlib -r' -extld|g" \
 	    | sh 2>&1 | sed -e "s/^/  | /g"
 
 	@# build/go.o is a elf32 object file but all go symbols are unexported. Our
@@ -58,6 +58,13 @@ go.o:
 binutils_version_check:
 	@echo "[binutils] checking that installed objcopy version is >= $(MIN_OBJCOPY_VERSION)"
 	@if [ "$(HAVE_VALID_OBJCOPY)" != "y" ]; then echo "[binutils] error: a more up to date binutils installation is required" ; exit 1 ; fi
+
+linker_script:
+	@echo "[sed] extracting LMA and VMA from constants.inc"
+	@echo "[gcc] pre-processing arch/$(ARCH)/script/linker.ld.in"
+	@gcc `cat arch/$(ARCH)/asm/constants.inc | sed -e "/^$$/d; /^;/d; s/^/-D/g; s/\s*equ\s*/=/g;" | tr '\n' ' '` \
+		-E -x \
+		c arch/$(ARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
 
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
@@ -87,22 +94,20 @@ iso:
 	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make iso'
 
 run: iso
-	qemu-system-i386 -cdrom $(iso_target)
+	qemu-system-$(ARCH) -cdrom $(iso_target)
 
 gdb: iso
-	qemu-system-i386 -s -S -cdrom $(iso_target) &
+	qemu-system-$(ARCH) -M accel=tcg -s -S -cdrom $(iso_target) &
 	sleep 1
 	gdb \
-	    -ex "add-auto-load-safe-path $(pwd)" \
-	    -ex "file $(kernel_target)" \
-	    -ex "set disassembly-flavor intel" \
-	    -ex 'set arch i386:intel' \
-	    -ex 'target remote localhost:1234' \
+	    -ex 'add-auto-load-safe-path $(pwd)' \
+	    -ex 'set disassembly-flavor intel' \
 	    -ex 'layout asm' \
-	    -ex 'b _rt0_entry' \
-	    -ex 'continue' \
-	    -ex 'disass'
-	@killall qemu-system-i386 || true
+	    -ex 'set arch i386:intel' \
+	    -ex 'file $(kernel_target)' \
+	    -ex 'target remote localhost:1234' \
+	    -ex 'set arch i386:x86-64:intel'
+	@killall qemu-system-$(ARCH) || true
 endif
 
 clean:

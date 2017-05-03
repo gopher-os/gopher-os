@@ -5,6 +5,7 @@ import (
 
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
+	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
 )
 
 // Kmain is the only Go symbol that is visible (exported) from the rt0 initialization
@@ -18,10 +19,15 @@ import (
 // Kmain is not expected to return. If it does, the rt0 code will halt the CPU.
 //
 //go:noinline
-func Kmain(multibootInfoPtr uint32) {
-	multiboot.SetInfoPtr(uintptr(multibootInfoPtr))
+func Kmain(multibootInfoPtr uintptr) {
+	multiboot.SetInfoPtr(multibootInfoPtr)
 
 	// Initialize and clear the terminal
 	hal.InitTerminal()
 	hal.ActiveTerminal.Clear()
+	early.Printf("Starting gopher-os\n")
+
+	// Prevent Kmain from returning
+	for {
+	}
 }

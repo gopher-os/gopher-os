@@ -2,7 +2,7 @@ package main
 
 import "github.com/achilleasa/gopher-os/kernel"
 
-var multibootInfoPtr uint32
+var multibootInfoPtr uintptr
 
 // main makes a dummy call to the actual kernel main entrypoint function. It
 // is intentionally defined to prevent the Go compiler from optimizing away the
