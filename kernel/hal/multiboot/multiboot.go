@@ -119,8 +119,9 @@ var (
 )
 
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
-// for each memory region provided by the boot loader.
-type MemRegionVisitor func(entry *MemoryMapEntry)
+// for each memory region provided by the boot loader. The visitor must return true
+// to continue or false to abort the scan.
+type MemRegionVisitor func(entry *MemoryMapEntry) bool
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
 // value. This function must be invoked before invoking any other function
@@ -151,7 +152,9 @@ func VisitMemRegions(visitor MemRegionVisitor) {
 			entry.Type = MemReserved
 		}
 
-		visitor(entry)
+		if !visitor(entry) {
+			return
+		}
 
 		curPtr += uintptr(ptrMapHeader.entrySize)
 	}

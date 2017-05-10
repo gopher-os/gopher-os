@@ -59,8 +59,9 @@ func TestVisitMemRegion(t *testing.T) {
 	var visitCount int
 
 	SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
-	VisitMemRegions(func(_ *MemoryMapEntry) {
+	VisitMemRegions(func(_ *MemoryMapEntry) bool {
 		visitCount++
+		return true
 	})
 
 	if visitCount != 0 {
@@ -71,7 +72,7 @@ func TestVisitMemRegion(t *testing.T) {
 	SetInfoPtr(uintptr(unsafe.Pointer(&multibootInfoTestData[0])))
 	multibootInfoTestData[128] = 0xFF
 
-	VisitMemRegions(func(entry *MemoryMapEntry) {
+	VisitMemRegions(func(entry *MemoryMapEntry) bool {
 		if entry.PhysAddress != specs[visitCount].expPhys {
 			t.Errorf("[visit %d] expected physical address to be %x; got %x", visitCount, specs[visitCount].expPhys, entry.PhysAddress)
 		}
@@ -82,10 +83,22 @@ func TestVisitMemRegion(t *testing.T) {
 			t.Errorf("[visit %d] expected region type to be %d; got %d", visitCount, specs[visitCount].expType, entry.Type)
 		}
 		visitCount++
+		return true
 	})
 
 	if visitCount != len(specs) {
 		t.Errorf("expected the visitor func to be invoked %d times; got %d", len(specs), visitCount)
+	}
+
+	// Test that the visitor function can abort the scan by returning false
+	visitCount = 0
+	VisitMemRegions(func(entry *MemoryMapEntry) bool {
+		visitCount++
+		return false
+	})
+
+	if visitCount != 1 {
+		t.Errorf("expected the visitor func to be invoked %d times; got %d", 1, visitCount)
 	}
 }
 
