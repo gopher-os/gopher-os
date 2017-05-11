@@ -102,6 +102,25 @@ func TestVisitMemRegion(t *testing.T) {
 	}
 }
 
+func TestMemoryEntryTypeStringer(t *testing.T) {
+	specs := []struct {
+		input MemoryEntryType
+		exp   string
+	}{
+		{MemAvailable, "available"},
+		{MemReserved, "reserved"},
+		{MemAcpiReclaimable, "ACPI (reclaimable)"},
+		{MemNvs, "NVS"},
+		{MemoryEntryType(123), "unknown"},
+	}
+
+	for specIndex, spec := range specs {
+		if got := spec.input.String(); got != spec.exp {
+			t.Errorf("[spec %d] expected MemoryEntryType(%d).String() to return %q; got %q", specIndex, spec.input, spec.exp, got)
+		}
+	}
+}
+
 func TestGetFramebufferInfo(t *testing.T) {
 	SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
 

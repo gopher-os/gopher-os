@@ -101,6 +101,15 @@ const (
 	memUnknown
 )
 
+var (
+	infoData uintptr
+)
+
+// MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
+// for each memory region provided by the boot loader. The visitor must return true
+// to continue or false to abort the scan.
+type MemRegionVisitor func(entry *MemoryMapEntry) bool
+
 // MemoryMapEntry describes a memory region entry, namely its physical address,
 // its length and its type.
 type MemoryMapEntry struct {
@@ -114,14 +123,21 @@ type MemoryMapEntry struct {
 	Type MemoryEntryType
 }
 
-var (
-	infoData uintptr
-)
-
-// MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
-// for each memory region provided by the boot loader. The visitor must return true
-// to continue or false to abort the scan.
-type MemRegionVisitor func(entry *MemoryMapEntry) bool
+// String implements fmt.Stringer for MemoryEntryType.
+func (t MemoryEntryType) String() string {
+	switch t {
+	case MemAvailable:
+		return "available"
+	case MemReserved:
+		return "reserved"
+	case MemAcpiReclaimable:
+		return "ACPI (reclaimable)"
+	case MemNvs:
+		return "NVS"
+	default:
+		return "unknown"
+	}
+}
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
 // value. This function must be invoked before invoking any other function
