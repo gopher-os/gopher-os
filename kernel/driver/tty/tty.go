@@ -5,6 +5,7 @@ import "io"
 // Tty is implemented by objects that can register themselves as ttys.
 type Tty interface {
 	io.Writer
+	io.ByteWriter
 
 	// Position returns the current cursor position (x, y).
 	Position() (uint16, uint16)

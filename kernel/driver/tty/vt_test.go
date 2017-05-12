@@ -44,7 +44,12 @@ func TestWrite(t *testing.T) {
 
 	vt.Clear()
 	vt.SetPosition(0, 1)
-	vt.Write([]byte("12\n3\n4\r56"))
+	vt.Write([]byte("12\n\t3\n4\r567\b8"))
+
+	// Tab spanning rows
+	vt.SetPosition(78, 4)
+	vt.WriteByte('\t')
+	vt.WriteByte('9')
 
 	// Trigger scroll
 	vt.SetPosition(79, 24)
@@ -56,9 +61,22 @@ func TestWrite(t *testing.T) {
 	}{
 		{0, 0, '1'},
 		{1, 0, '2'},
-		{0, 1, '3'},
+		// tabs
+		{0, 1, ' '},
+		{1, 1, ' '},
+		{2, 1, ' '},
+		{3, 1, ' '},
+		{4, 1, '3'},
+		// tab spanning 2 rows
+		{78, 3, ' '},
+		{79, 3, ' '},
+		{0, 4, ' '},
+		{1, 4, ' '},
+		{2, 4, '9'},
+		//
 		{0, 2, '5'},
 		{1, 2, '6'},
+		{2, 2, '8'}, // overwritten by BS
 		{79, 23, '!'},
 	}
 
