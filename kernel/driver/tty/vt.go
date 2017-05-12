@@ -5,6 +5,7 @@ import "github.com/achilleasa/gopher-os/kernel/driver/video/console"
 const (
 	defaultFg = console.LightGrey
 	defaultBg = console.Black
+	tabWidth  = 4
 )
 
 // Vt implements a simple terminal that can process LF and CR characters. The
@@ -59,24 +60,45 @@ func (t *Vt) SetPosition(x, y uint16) {
 
 // Write implements io.Writer.
 func (t *Vt) Write(data []byte) (int, error) {
-	attr := t.curAttr
 	for _, b := range data {
-		switch b {
-		case '\r':
-			t.cr()
-		case '\n':
-			t.cr()
-			t.lf()
-		default:
-			t.cons.Write(b, attr, t.curX, t.curY)
-			t.curX++
-			if t.curX == t.width {
-				t.lf()
-			}
-		}
+		t.WriteByte(b)
 	}
 
 	return len(data), nil
+}
+
+// Write implements io.ByteWriter.
+func (t *Vt) WriteByte(b byte) error {
+	switch b {
+	case '\r':
+		t.cr()
+	case '\n':
+		t.cr()
+		t.lf()
+	case '\b':
+		if t.curX > 0 {
+			t.cons.Write(' ', t.curAttr, t.curX, t.curY)
+			t.curX--
+		}
+	case '\t':
+		for i := 0; i < tabWidth; i++ {
+			t.cons.Write(' ', t.curAttr, t.curX, t.curY)
+			t.curX++
+			if t.curX == t.width {
+				t.cr()
+				t.lf()
+			}
+		}
+	default:
+		t.cons.Write(b, t.curAttr, t.curX, t.curY)
+		t.curX++
+		if t.curX == t.width {
+			t.cr()
+			t.lf()
+		}
+	}
+
+	return nil
 }
 
 // cls clears the terminal.

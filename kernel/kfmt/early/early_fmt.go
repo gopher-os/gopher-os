@@ -7,7 +7,7 @@ var (
 	errWrongArgType = []byte("%!(WRONGTYPE)")
 	errNoVerb       = []byte("%!(NOVERB)")
 	errExtraArg     = []byte("%!(EXTRA)")
-	padding         = []byte{' '}
+	padding         = byte(' ')
 	trueValue       = []byte("true")
 	falseValue      = []byte("false")
 )
@@ -62,7 +62,9 @@ func Printf(format string, args ...interface{}) {
 		}
 
 		if blockStart < blockEnd {
-			hal.ActiveTerminal.Write([]byte(format[blockStart:blockEnd]))
+			for i := blockStart; i < blockEnd; i++ {
+				hal.ActiveTerminal.WriteByte(format[i])
+			}
 		}
 
 		// Scan til we hit the format character
@@ -109,7 +111,9 @@ func Printf(format string, args ...interface{}) {
 	}
 
 	if blockStart != blockEnd {
-		hal.ActiveTerminal.Write([]byte(format[blockStart:blockEnd]))
+		for i := blockStart; i < blockEnd; i++ {
+			hal.ActiveTerminal.WriteByte(format[i])
+		}
 	}
 
 	// Check for unused args
@@ -139,23 +143,25 @@ func fmtBool(v interface{}) {
 // padding specified by padLen. This function uses hal.ActiveTerminal for its
 // output.
 func fmtString(v interface{}, padLen int) {
-	var sval []byte
-
 	switch castedVal := v.(type) {
 	case string:
-		sval = []byte(castedVal)
+		fmtRepeat(padding, padLen-len(castedVal))
+		for i := 0; i < len(castedVal); i++ {
+			hal.ActiveTerminal.WriteByte(castedVal[i])
+		}
 	case []byte:
-		sval = castedVal
+		fmtRepeat(padding, padLen-len(castedVal))
+		hal.ActiveTerminal.Write(castedVal)
 	default:
 		hal.ActiveTerminal.Write(errWrongArgType)
-		return
 	}
+}
 
-	for pad := padLen - len(sval); pad > 0; pad-- {
-		hal.ActiveTerminal.Write(padding)
+// fmtRepeat writes count bytes with value ch to the hal.ActiveTerminal.
+func fmtRepeat(ch byte, count int) {
+	for i := 0; i < count; i++ {
+		hal.ActiveTerminal.WriteByte(ch)
 	}
-
-	hal.ActiveTerminal.Write(sval)
 }
 
 // fmtInt prints out a formatted version of v in the requested base, applying the
