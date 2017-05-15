@@ -138,3 +138,4 @@ lint-check-deps:
 	@gometalinter.v1 --install >/dev/null
 
 test:
+	go test -cover ./...
