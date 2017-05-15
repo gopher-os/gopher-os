@@ -1,4 +1,4 @@
-package pfn
+package pmm
 
 import (
 	"testing"
@@ -35,7 +35,7 @@ func TestBootMemoryAllocator(t *testing.T) {
 		alloc           BootMemAllocator
 		allocFrameCount uint64
 	)
-	for ; ; allocFrameCount++ {
+	for alloc.Init(); ; allocFrameCount++ {
 		frame, ok := alloc.AllocFrame(mem.PageOrder(0))
 		if !ok {
 			break

@@ -1,6 +1,5 @@
-// Package pfn provides physical memory allocator implementations that allow
-// allocations of physical memory frames.
-package pfn
+// Package pmm contains code that manages physical memory frame allocations.
+package pmm
 
 import (
 	"math"

@@ -1,4 +1,4 @@
-package pfn
+package pmm
 
 import (
 	"testing"

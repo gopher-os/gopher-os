@@ -1,4 +1,4 @@
-package pfn
+package pmm
 
 import (
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
@@ -30,8 +30,6 @@ var (
 // blocks will be handed over to a more advanced memory allocator that does
 // support freeing.
 type BootMemAllocator struct {
-	initialized bool
-
 	// allocCount tracks the total number of allocated frames.
 	allocCount uint64
 
@@ -39,11 +37,10 @@ type BootMemAllocator struct {
 	lastAllocIndex int64
 }
 
-// init sets up the boot memory allocator internal state and prints out the
+// Init sets up the boot memory allocator internal state and prints out the
 // system memory map.
-func (alloc *BootMemAllocator) init() {
+func (alloc *BootMemAllocator) Init() {
 	alloc.lastAllocIndex = -1
-	alloc.initialized = true
 
 	early.Printf("[boot_mem_alloc] system memory map:\n")
 	var totalFree mem.Size
@@ -69,10 +66,6 @@ func (alloc *BootMemAllocator) init() {
 // error then the compiler would call runtime.convT2I which in turn invokes the
 // yet uninitialized Go allocator.
 func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, bool) {
-	if !alloc.initialized {
-		alloc.init()
-	}
-
 	if order > 0 {
 		return InvalidFrame, false
 	}
