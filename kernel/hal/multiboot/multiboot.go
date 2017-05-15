@@ -4,6 +4,7 @@ import "unsafe"
 
 type tagType uint32
 
+// nolint
 const (
 	tagMbSectionEnd tagType = iota
 	tagBootCmdLine
@@ -100,7 +101,7 @@ const (
 	memUnknown
 )
 
-/// MemoryMapEntry describes a memory region entry, namely its physical address,
+// MemoryMapEntry describes a memory region entry, namely its physical address,
 // its length and its type.
 type MemoryMapEntry struct {
 	// The physical address for this memory region.

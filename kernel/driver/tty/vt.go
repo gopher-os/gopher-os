@@ -67,7 +67,7 @@ func (t *Vt) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// Write implements io.ByteWriter.
+// WriteByte implements io.ByteWriter.
 func (t *Vt) WriteByte(b byte) error {
 	switch b {
 	case '\r':
