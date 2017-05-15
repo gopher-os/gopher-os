@@ -112,3 +112,29 @@ endif
 
 clean:
 	@test -d $(BUILD_DIR) && rm -rf $(BUILD_DIR) || true
+
+lint: lint-check-deps
+	@echo "[gometalinter] linting sources"
+	@gometalinter.v1 \
+		--disable-all \
+		--enable=deadcode \
+		--enable=errcheck \
+		--enable=gosimple \
+		--enable=ineffassign \
+		--enable=misspell \
+		--enable=staticcheck \
+		--enable=vet \
+		--enable=vetshadow \
+		--enable=unconvert \
+		--enable=varcheck \
+		--enable=golint \
+		--deadline 300s \
+		--exclude 'return value not checked' \
+		--exclude 'possible misuse of unsafe.Pointer' \
+		./...
+
+lint-check-deps:
+	@go get -u gopkg.in/alecthomas/gometalinter.v1
+	@gometalinter.v1 --install >/dev/null
+
+test:
