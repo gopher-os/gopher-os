@@ -71,7 +71,7 @@ func TestPrintf(t *testing.T) {
 			"uint arg: 777",
 		},
 		{
-			func() { printfn("uint arg: %x", uint32(0xbadf00d)) },
+			func() { printfn("uint arg: 0x%x", uint32(0xbadf00d)) },
 			"uint arg: 0xbadf00d",
 		},
 		{
@@ -83,16 +83,16 @@ func TestPrintf(t *testing.T) {
 			"uint arg with padding: '0777'",
 		},
 		{
-			func() { printfn("uint arg with padding: '%10x'", uint64(0xbadf00d)) },
+			func() { printfn("uint arg with padding: '0x%10x'", uint64(0xbadf00d)) },
 			"uint arg with padding: '0x000badf00d'",
 		},
 		{
-			func() { printfn("uint arg longer than padding: '%5x'", int64(0xbadf00d)) },
+			func() { printfn("uint arg longer than padding: '0x%5x'", int64(0xbadf00d)) },
 			"uint arg longer than padding: '0xbadf00d'",
 		},
 		// pointers
 		{
-			func() { printfn("uintptr %x", uintptr(0xb8000)) },
+			func() { printfn("uintptr 0x%x", uintptr(0xb8000)) },
 			"uintptr 0xb8000",
 		},
 		// ints
@@ -107,7 +107,7 @@ func TestPrintf(t *testing.T) {
 		},
 		{
 			func() { printfn("int arg: %x", int32(-0xbadf00d)) },
-			"int arg: -0xbadf00d",
+			"int arg: -badf00d",
 		},
 		{
 			func() { printfn("int arg with padding: '%10d'", int64(-12345678)) },
@@ -123,7 +123,7 @@ func TestPrintf(t *testing.T) {
 		},
 		{
 			func() { printfn("int arg longer than padding: '%5x'", int(-0xbadf00d)) },
-			"int arg longer than padding: '-0xbadf00d'",
+			"int arg longer than padding: '-badf00d'",
 		},
 		// multiple arguments
 		{

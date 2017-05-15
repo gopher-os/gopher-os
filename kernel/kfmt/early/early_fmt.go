@@ -246,13 +246,6 @@ func fmtInt(v interface{}, base, padLen int) {
 		buf[right] = padCh
 	}
 
-	// Apply hex prefix
-	if base == 16 {
-		buf[right] = 'x'
-		buf[right+1] = '0'
-		right += 2
-	}
-
 	// Apply negative sign to the rightmost blank character (if using enough padding);
 	// otherwise append the sign as a new char
 	if sval < 0 {
