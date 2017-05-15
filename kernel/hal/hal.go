@@ -7,7 +7,9 @@ import (
 )
 
 var (
-	egaConsole     = &console.Ega{}
+	egaConsole = &console.Ega{}
+
+	// ActiveTerminal points to the currently active terminal.
 	ActiveTerminal = &tty.Vt{}
 )
 

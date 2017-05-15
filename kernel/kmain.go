@@ -26,8 +26,4 @@ func Kmain(multibootInfoPtr uintptr) {
 	hal.InitTerminal()
 	hal.ActiveTerminal.Clear()
 	early.Printf("Starting gopher-os\n")
-
-	// Prevent Kmain from returning
-	for {
-	}
 }
