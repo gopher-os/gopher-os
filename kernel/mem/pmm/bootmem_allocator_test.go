@@ -49,14 +49,6 @@ func TestBootMemoryAllocator(t *testing.T) {
 		if !frame.IsValid() {
 			t.Errorf("[frame %d] expected IsValid() to return true", allocFrameCount)
 		}
-
-		if got := frame.PageOrder(); got != mem.PageOrder(0) {
-			t.Errorf("[frame %d] expected allocated frame page order to be 0; got %d", allocFrameCount, got)
-		}
-
-		if got := frame.Size(); got != mem.PageSize {
-			t.Errorf("[frame %d] expected allocated frame size to be %d; got %d", allocFrameCount, mem.PageSize, got)
-		}
 	}
 
 	if allocFrameCount != totalFreeFrames {

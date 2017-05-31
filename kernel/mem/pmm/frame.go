@@ -8,7 +8,7 @@ import (
 )
 
 // Frame describes a physical memory page index.
-type Frame uint64
+type Frame uintptr
 
 const (
 	// InvalidFrame is returned by page allocators when
@@ -24,15 +24,4 @@ func (f Frame) IsValid() bool {
 // Address returns a pointer to the physical memory address pointed to by this Frame.
 func (f Frame) Address() uintptr {
 	return uintptr(f << mem.PageShift)
-}
-
-// PageOrder returns the page order of this frame. The page order is encoded in the
-// 8 MSB of the frame number.
-func (f Frame) PageOrder() mem.PageOrder {
-	return mem.PageOrder((f >> 56) & 0xFF)
-}
-
-// Size returns the size of this frame.
-func (f Frame) Size() mem.Size {
-	return mem.PageSize << ((f >> 56) & 0xFF)
 }
