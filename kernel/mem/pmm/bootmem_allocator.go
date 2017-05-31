@@ -1,6 +1,7 @@
 package pmm
 
 import (
+	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
 	"github.com/achilleasa/gopher-os/kernel/mem"
@@ -11,6 +12,9 @@ var (
 	// which is used to bootstrap the kernel before initializing a more
 	// advanced memory allocator.
 	EarlyAllocator BootMemAllocator
+
+	errBootAllocUnsupportedPageSize = &kernel.Error{Module: "pmm.BootMemAllocator", Message: "allocator only support allocation requests of order(0)"}
+	errBootAllocOutOfMemory         = &kernel.Error{Module: "pmm.BootMemAllocator", Message: "out of memory"}
 )
 
 // BootMemAllocator implements a rudimentary physical memory allocator which is used
@@ -56,18 +60,13 @@ func (alloc *BootMemAllocator) Init() {
 }
 
 // AllocFrame scans the system memory regions reported by the bootloader and
-// reseves the next available free frame. AllocFrame returns false if no more
-// memory can be allocated.
+// reserves the next available free frame.
 //
-// The allocator only supports allocating blocks equal to the page size.
-// Requests for a page order > 0 will cause the allocator to return false.
-//
-// The use of a bool return value is intentional; if this method returned an
-// error then the compiler would call runtime.convT2I which in turn invokes the
-// yet uninitialized Go allocator.
-func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, bool) {
+// AllocFrame returns an error if no more memory can be allocated or when the
+// requested page order is > 0.
+func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, *kernel.Error) {
 	if order > 0 {
-		return InvalidFrame, false
+		return InvalidFrame, errBootAllocUnsupportedPageSize
 	}
 
 	var (
@@ -103,11 +102,11 @@ func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, bool) {
 	})
 
 	if foundPageIndex == -1 {
-		return InvalidFrame, false
+		return InvalidFrame, errBootAllocOutOfMemory
 	}
 
 	alloc.allocCount++
 	alloc.lastAllocIndex = foundPageIndex
 
-	return Frame(foundPageIndex), true
+	return Frame(foundPageIndex), nil
 }
