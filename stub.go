@@ -1,6 +1,6 @@
 package main
 
-import "github.com/achilleasa/gopher-os/kernel"
+import "github.com/achilleasa/gopher-os/kernel/kmain"
 
 var multibootInfoPtr uintptr
 
@@ -11,5 +11,5 @@ var multibootInfoPtr uintptr
 // A global variable is passed as an argument to Kmain to prevent the compiler
 // from inlining the actual call and removing Kmain from the generated .o file.
 func main() {
-	kernel.Kmain(multibootInfoPtr)
+	kmain.Kmain(multibootInfoPtr)
 }
