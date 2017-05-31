@@ -1,4 +1,4 @@
-package kernel
+package kmain
 
 import (
 	"github.com/achilleasa/gopher-os/kernel/hal"

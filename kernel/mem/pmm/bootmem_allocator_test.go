@@ -36,9 +36,12 @@ func TestBootMemoryAllocator(t *testing.T) {
 		allocFrameCount uint64
 	)
 	for alloc.Init(); ; allocFrameCount++ {
-		frame, ok := alloc.AllocFrame(mem.PageOrder(0))
-		if !ok {
-			break
+		frame, err := alloc.AllocFrame(mem.PageOrder(0))
+		if err != nil {
+			if err == errBootAllocOutOfMemory {
+				break
+			}
+			t.Fatalf("[frame %d] unexpected allocator error: %v", allocFrameCount, err)
 		}
 
 		expAddress := uintptr(uint64(alloc.lastAllocIndex) * uint64(mem.PageSize))
@@ -49,14 +52,6 @@ func TestBootMemoryAllocator(t *testing.T) {
 		if !frame.IsValid() {
 			t.Errorf("[frame %d] expected IsValid() to return true", allocFrameCount)
 		}
-
-		if got := frame.PageOrder(); got != mem.PageOrder(0) {
-			t.Errorf("[frame %d] expected allocated frame page order to be 0; got %d", allocFrameCount, got)
-		}
-
-		if got := frame.Size(); got != mem.PageSize {
-			t.Errorf("[frame %d] expected allocated frame size to be %d; got %d", allocFrameCount, mem.PageSize, got)
-		}
 	}
 
 	if allocFrameCount != totalFreeFrames {
@@ -64,8 +59,8 @@ func TestBootMemoryAllocator(t *testing.T) {
 	}
 
 	// This allocator only works with order(0) blocks
-	if frame, ok := alloc.AllocFrame(mem.PageOrder(1)); ok || frame.IsValid() {
-		t.Fatalf("expected allocator to return false and an invalid frame when requested to allocate a block with order > 0; got %t, %v", ok, frame)
+	if frame, err := alloc.AllocFrame(mem.PageOrder(1)); err != errBootAllocUnsupportedPageSize || frame.IsValid() {
+		t.Fatalf("expected allocator to return errBootAllocUnsupportedPageSize and an invalid frame when requested to allocate a block with order > 0; got %v, %v", err, frame)
 	}
 }
 
