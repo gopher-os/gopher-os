@@ -16,8 +16,8 @@ const (
 	InvalidFrame = Frame(math.MaxUint64)
 )
 
-// IsValid returns true if this is a valid frame.
-func (f Frame) IsValid() bool {
+// Valid returns true if this is a valid frame.
+func (f Frame) Valid() bool {
 	return f != InvalidFrame
 }
 

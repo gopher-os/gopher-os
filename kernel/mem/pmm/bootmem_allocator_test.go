@@ -49,7 +49,7 @@ func TestBootMemoryAllocator(t *testing.T) {
 			t.Errorf("[frame %d] expected frame address to be 0x%x; got 0x%x", allocFrameCount, expAddress, got)
 		}
 
-		if !frame.IsValid() {
+		if !frame.Valid() {
 			t.Errorf("[frame %d] expected IsValid() to return true", allocFrameCount)
 		}
 	}
@@ -59,7 +59,7 @@ func TestBootMemoryAllocator(t *testing.T) {
 	}
 
 	// This allocator only works with order(0) blocks
-	if frame, err := alloc.AllocFrame(mem.PageOrder(1)); err != errBootAllocUnsupportedPageSize || frame.IsValid() {
+	if frame, err := alloc.AllocFrame(mem.PageOrder(1)); err != errBootAllocUnsupportedPageSize || frame.Valid() {
 		t.Fatalf("expected allocator to return errBootAllocUnsupportedPageSize and an invalid frame when requested to allocate a block with order > 0; got %v, %v", err, frame)
 	}
 }

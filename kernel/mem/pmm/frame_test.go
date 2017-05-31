@@ -7,17 +7,20 @@ import (
 )
 
 func TestFrameMethods(t *testing.T) {
-	for order := mem.PageOrder(0); order < mem.PageOrder(10); order++ {
-		for frameIndex := uint64(0); frameIndex < 128; frameIndex++ {
-			frame := Frame(frameIndex | (uint64(order) << 56))
+	for frameIndex := uint64(0); frameIndex < 128; frameIndex++ {
+		frame := Frame(frameIndex)
 
-			if !frame.IsValid() {
-				t.Errorf("[order %d] expected frame %d to be valid", order, frameIndex)
-			}
-
-			if exp, got := uintptr(frameIndex<<mem.PageShift), frame.Address(); got != exp {
-				t.Errorf("[order %d] expected frame (%d, index: %d) call to Address() to return %x; got %x", order, frame, frameIndex, exp, got)
-			}
+		if !frame.Valid() {
+			t.Errorf("expected frame %d to be valid", frameIndex)
 		}
+
+		if exp, got := uintptr(frameIndex<<mem.PageShift), frame.Address(); got != exp {
+			t.Errorf("expected frame (%d, index: %d) call to Address() to return %x; got %x", frame, frameIndex, exp, got)
+		}
+	}
+
+	invalidFrame := InvalidFrame
+	if invalidFrame.Valid() {
+		t.Error("expected InvalidFrame.Valid() to return false")
 	}
 }
