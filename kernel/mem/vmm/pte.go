@@ -1,8 +1,14 @@
 package vmm
 
 import (
+	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
+)
+
+var (
+	// ErrInvalidMapping is returned when trying to lookup a virtual memory address that is not yet mapped.
+	ErrInvalidMapping = &kernel.Error{Module: "vmm", Message: "virtual address does not point to a mapped physical page"}
 )
 
 // PageTableEntryFlag describes a flag that can be applied to a page table entry.
@@ -41,4 +47,28 @@ func (pte pageTableEntry) Frame() pmm.Frame {
 // SetFrame updates the page table entry to point the the given physical frame .
 func (pte *pageTableEntry) SetFrame(frame pmm.Frame) {
 	*pte = (pageTableEntry)((uintptr(*pte) &^ ptePhysPageMask) | frame.Address())
+}
+
+// pteForAddress returns the final page table entry that correspond to a
+// particular virtual address. The function performs a page table walk till it
+// reaches the final page table entry returning ErrInvalidMapping if the page
+// is not present.
+func pteForAddress(virtAddr uintptr) (*pageTableEntry, *kernel.Error) {
+	var (
+		err   *kernel.Error
+		entry *pageTableEntry
+	)
+
+	walk(virtAddr, func(pteLevel uint8, pte *pageTableEntry) bool {
+		if !pte.HasFlags(FlagPresent) {
+			entry = nil
+			err = ErrInvalidMapping
+			return false
+		}
+
+		entry = pte
+		return true
+	})
+
+	return entry, err
 }
