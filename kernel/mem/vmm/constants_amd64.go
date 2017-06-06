@@ -12,6 +12,12 @@ const (
 	// address pointed to by a page table entry. For this particular architecture,
 	// bits 12-51 contain the physical memory address.
 	ptePhysPageMask = uintptr(0x000ffffffffff000)
+
+	// tempMappingAddr is a reserved virtual page address used for
+	// temporary physical page mappings (e.g. when mapping inactive PDT
+	// pages). For amd64 this address uses the following table indices:
+	// 510, 511, 511, 511.
+	tempMappingAddr = uintptr(0Xffffff7ffffff000)
 )
 
 var (
