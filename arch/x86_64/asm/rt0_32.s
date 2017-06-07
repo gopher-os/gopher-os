@@ -247,6 +247,12 @@ _rt0_populate_initial_page_tables:
 	or eax, PAGE_PRESENT | PAGE_WRITABLE
 	mov ebx, page_table_l4 - PAGE_OFFSET
 	mov [ebx], eax 
+	
+	; Recursively map the last P4 entry to itself. This allows us to use 
+	; specially crafted memory addresses to access the page tables themselves
+	mov ecx, ebx 
+	or ecx, PAGE_PRESENT | PAGE_WRITABLE 
+	mov [ebx + 511*8], ecx
 
 	; Also map the addresses starting at PAGE_OFFSET to the same P3 table. 
 	; To find the P4 index for PAGE_OFFSET we need to extract bits 39-47
