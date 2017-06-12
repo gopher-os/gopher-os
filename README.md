@@ -4,3 +4,5 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/achilleasa/gopher-os)](https://goreportcard.com/report/github.com/achilleasa/gopher-os)
 
 Let's write an experimental OS in Go!
+
+Interested in this project? I'll be talking about it at [Golang UK](https://www.golanguk.com/) this year.
