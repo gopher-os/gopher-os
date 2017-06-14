@@ -1,6 +1,6 @@
 package kernel
 
-// Error describes a kernel kerror. All kernel errors must be defined as global
+// Error describes a kernel error. All kernel errors must be defined as global
 // variables that are pointers to the Error structure. This requirement stems
 // from the fact that the Go allocator is not available to us so we cannot use
 // errors.New.
