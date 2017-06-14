@@ -25,5 +25,5 @@ func Kmain(multibootInfoPtr uintptr) {
 
 	pmm.EarlyAllocator.Init()
 
-	Nyan()
+	nyan()
 }
