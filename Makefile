@@ -64,8 +64,13 @@ binutils_version_check:
 	@echo "[binutils] checking that installed objcopy version is >= $(MIN_OBJCOPY_VERSION)"
 	@if [ "$(HAVE_VALID_OBJCOPY)" != "y" ]; then echo "[binutils] error: a more up to date binutils installation is required" ; exit 1 ; fi
 
+iso_prereq: xorriso_check grub-pc-bin_check
+
 xorriso_check:
 	@if xorriso --version >/dev/null 2>&1; then exit 0; else echo "Install xorriso via 'sudo apt install xorriso'." ; exit 1 ; fi
+
+grub-pc-bin_check:
+	@ if dpkg -l grub-pc-bin > /dev/null; then exit 0; else echo "Install package grub-pc-bin via 'sudo apt install grub-pc-bin'."; exit 1; fi
 
 linker_script:
 	@echo "[sed] extracting LMA and VMA from constants.inc"
@@ -81,7 +86,7 @@ $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 
 iso: $(iso_target)
 
-$(iso_target): xorriso_check $(kernel_target)
+$(iso_target): iso_prereq $(kernel_target)
 	@echo "[grub] building ISO kernel-$(ARCH).iso"
 
 	@mkdir -p $(BUILD_DIR)/isofiles/boot/grub
