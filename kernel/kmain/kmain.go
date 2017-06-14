@@ -24,4 +24,6 @@ func Kmain(multibootInfoPtr uintptr) {
 	hal.ActiveTerminal.Clear()
 
 	pmm.EarlyAllocator.Init()
+
+	Nyan()
 }
