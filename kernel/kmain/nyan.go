@@ -49,7 +49,7 @@ func color(in rune) (a console.Attr) {
 	return
 }
 
-func Nyan() {
+func nyan() {
 	// Get TTY size
 	vt := hal.ActiveTerminal
 	w, h := vt.Dimensions()
