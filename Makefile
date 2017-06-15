@@ -12,8 +12,12 @@ export SHELL := /bin/bash -o pipefail
 LD := ld
 AS := nasm
 
+# If your go is called something else set it on the commandline, like
+# this: make run GO=go1.8
+GO ?= go
 GOOS := linux
 GOARCH := amd64
+GOROOT := $(shell $(GO) env GOROOT)
 
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
 AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/
@@ -36,12 +40,13 @@ go.o:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[go] compiling go sources into a standalone .o file"
-	@GOARCH=$(GOARCH) GOOS=$(GOOS) go build -n 2>&1 | sed \
+	@GOARCH=$(GOARCH) GOOS=$(GOOS) $(GO) build -n 2>&1 | sed \
 	    -e "1s|^|set -e\n|" \
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
+	    -e "1s|^|export GOROOT=$(GOROOT)\n|" \
 	    -e "1s|^|WORK='$(BUILD_ABS_DIR)'\n|" \
-	    -e "1s|^|alias pack='go tool pack'\n|" \
+	    -e "1s|^|alias pack='$(GO) tool pack'\n|" \
 	    -e "/^mv/d" \
 	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostartfiles -nodefaultlibs -nostdlib -r' -extld|g" \
 	    | sh 2>&1 | sed -e "s/^/  | /g"
@@ -59,6 +64,14 @@ binutils_version_check:
 	@echo "[binutils] checking that installed objcopy version is >= $(MIN_OBJCOPY_VERSION)"
 	@if [ "$(HAVE_VALID_OBJCOPY)" != "y" ]; then echo "[binutils] error: a more up to date binutils installation is required" ; exit 1 ; fi
 
+iso_prereq: xorriso_check grub-pc-bin_check
+
+xorriso_check:
+	@if xorriso --version >/dev/null 2>&1; then exit 0; else echo "Install xorriso via 'sudo apt install xorriso'." ; exit 1 ; fi
+
+grub-pc-bin_check:
+	@ if dpkg -l grub-pc-bin > /dev/null; then exit 0; else echo "Install package grub-pc-bin via 'sudo apt install grub-pc-bin'."; exit 1; fi
+
 linker_script:
 	@echo "[sed] extracting LMA and VMA from constants.inc"
 	@echo "[gcc] pre-processing arch/$(ARCH)/script/linker.ld.in"
@@ -73,7 +86,7 @@ $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 
 iso: $(iso_target)
 
-$(iso_target): $(kernel_target)
+$(iso_target): iso_prereq $(kernel_target)
 	@echo "[grub] building ISO kernel-$(ARCH).iso"
 
 	@mkdir -p $(BUILD_DIR)/isofiles/boot/grub
@@ -93,6 +106,8 @@ kernel:
 iso:
 	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make iso'
 
+endif
+
 run: iso
 	qemu-system-$(ARCH) -cdrom $(iso_target)
 
@@ -108,7 +123,6 @@ gdb: iso
 	    -ex 'target remote localhost:1234' \
 	    -ex 'set arch i386:x86-64:intel'
 	@killall qemu-system-$(ARCH) || true
-endif
 
 clean:
 	@test -d $(BUILD_DIR) && rm -rf $(BUILD_DIR) || true
@@ -134,8 +148,8 @@ lint: lint-check-deps
 		./...
 
 lint-check-deps:
-	@go get -u gopkg.in/alecthomas/gometalinter.v1
+	@$(GO) get -u gopkg.in/alecthomas/gometalinter.v1
 	@gometalinter.v1 --install >/dev/null
 
 test:
-	go test -cover ./...
+	$(GO) test -cover ./...
