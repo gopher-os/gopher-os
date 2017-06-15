@@ -26,17 +26,18 @@ func TestMapTemporaryAmd64(t *testing.T) {
 		ptePtrFn = origPtePtr
 		nextAddrFn = origNextAddrFn
 		flushTLBEntryFn = origFlushTLBEntryFn
+		frameAllocator = nil
 	}(ptePtrFn, nextAddrFn, flushTLBEntryFn)
 
 	var physPages [pageLevels][mem.PageSize >> mem.PointerShift]pageTableEntry
 	nextPhysPage := 0
 
 	// allocFn returns pages from index 1; we keep index 0 for the P4 entry
-	allocFn := func() (pmm.Frame, *kernel.Error) {
+	SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
 		nextPhysPage++
 		pageAddr := unsafe.Pointer(&physPages[nextPhysPage][0])
 		return pmm.Frame(uintptr(pageAddr) >> mem.PageShift), nil
-	}
+	})
 
 	pteCallCount := 0
 	ptePtrFn = func(entry uintptr) unsafe.Pointer {
@@ -64,7 +65,7 @@ func TestMapTemporaryAmd64(t *testing.T) {
 	frame := pmm.Frame(123)
 	levelIndices := []uint{510, 511, 511, 511}
 
-	page, err := MapTemporary(frame, allocFn)
+	page, err := MapTemporary(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,21 +125,22 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 			return unsafe.Pointer(&physPages[0][pteIndex])
 		}
 
-		if _, err := MapTemporary(frame, nil); err != errNoHugePageSupport {
+		if _, err := MapTemporary(frame); err != errNoHugePageSupport {
 			t.Fatalf("expected to get errNoHugePageSupport; got %v", err)
 		}
 	})
 
 	t.Run("allocFn returns an error", func(t *testing.T) {
+		defer func() { frameAllocator = nil }()
 		physPages[0][p4Index] = 0
 
 		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
 
-		allocFn := func() (pmm.Frame, *kernel.Error) {
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
 			return 0, expErr
-		}
+		})
 
-		if _, err := MapTemporary(frame, allocFn); err != expErr {
+		if _, err := MapTemporary(frame); err != expErr {
 			t.Fatalf("got unexpected error %v", err)
 		}
 	})
