@@ -134,10 +134,3 @@ func (alloc *bootMemAllocator) printMemoryMap() {
 		uint64(alloc.kernelEndFrame-alloc.kernelStartFrame+1),
 	)
 }
-
-// Init sets up the kernel physical memory allocation sub-system.
-func Init(kernelStart, kernelEnd uintptr) *kernel.Error {
-	earlyAllocator.init(kernelStart, kernelEnd)
-	earlyAllocator.printMemoryMap()
-	return nil
-}

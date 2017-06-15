@@ -1,7 +1,6 @@
 package allocator
 
 import (
-	"bytes"
 	"testing"
 	"unsafe"
 
@@ -91,26 +90,6 @@ func TestBootMemoryAllocator(t *testing.T) {
 		if alloc.allocCount != spec.expAllocCount {
 			t.Errorf("[spec %d] expected allocator to allocate %d frames; allocated %d", specIndex, spec.expAllocCount, alloc.allocCount)
 		}
-	}
-}
-
-func TestAllocatorPackageInit(t *testing.T) {
-	fb := mockTTY()
-	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
-
-	Init(0x100000, 0x1fa7c8)
-
-	var buf bytes.Buffer
-	for i := 0; i < len(fb); i += 2 {
-		if fb[i] == 0x0 {
-			continue
-		}
-		buf.WriteByte(fb[i])
-	}
-
-	exp := "[boot_mem_alloc] system memory map:    [0x0000000000 - 0x000009fc00], size:     654336, type: available    [0x000009fc00 - 0x00000a0000], size:       1024, type: reserved    [0x00000f0000 - 0x0000100000], size:      65536, type: reserved    [0x0000100000 - 0x0007fe0000], size:  133038080, type: available    [0x0007fe0000 - 0x0008000000], size:     131072, type: reserved    [0x00fffc0000 - 0x0100000000], size:     262144, type: reserved[boot_mem_alloc] available memory: 130559Kb[boot_mem_alloc] kernel loaded at 0x100000 - 0x1fa7c8[boot_mem_alloc] size: 1025992 bytes, reserved pages: 251"
-	if got := buf.String(); got != exp {
-		t.Fatalf("expected printMemoryMap to generate the following output:\n%q\ngot:\n%q", exp, got)
 	}
 }
 
