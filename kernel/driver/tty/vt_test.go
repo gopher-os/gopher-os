@@ -26,6 +26,11 @@ func TestVtPosition(t *testing.T) {
 	var vt Vt
 	vt.AttachTo(&cons)
 
+	w, h := vt.Dimensions()
+	if w != 80 || h != 25 {
+		t.Fatalf("Dimensions wrong: got %v x %v", w, h)
+	}
+
 	for specIndex, spec := range specs {
 		vt.SetPosition(spec.inX, spec.inY)
 		if x, y := vt.Position(); x != spec.expX || y != spec.expY {
@@ -51,9 +56,10 @@ func TestWrite(t *testing.T) {
 	vt.WriteByte('\t')
 	vt.WriteByte('9')
 
-	// Trigger scroll
+	// Trigger scroll and WriteAtPosition into the new blank line.
 	vt.SetPosition(79, 24)
 	vt.Write([]byte{'!'})
+	vt.WriteAtPosition(79, 24, console.White, '!')
 
 	specs := []struct {
 		x, y    uint16
@@ -78,6 +84,7 @@ func TestWrite(t *testing.T) {
 		{1, 2, '6'},
 		{2, 2, '8'}, // overwritten by BS
 		{79, 23, '!'},
+		{79, 24, '!'},
 	}
 
 	for specIndex, spec := range specs {

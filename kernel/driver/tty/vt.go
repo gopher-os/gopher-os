@@ -45,6 +45,11 @@ func (t *Vt) Position() (uint16, uint16) {
 	return t.curX, t.curY
 }
 
+// Dimensions returns the dimensions.
+func (t *Vt) Dimensions() (uint16, uint16) {
+	return t.width, t.height
+}
+
 // SetPosition sets the current cursor position to (x,y).
 func (t *Vt) SetPosition(x, y uint16) {
 	if x >= t.width {
@@ -56,6 +61,13 @@ func (t *Vt) SetPosition(x, y uint16) {
 	}
 
 	t.curX, t.curY = x, y
+}
+
+// WriteAtPosition writes b with attribute attr at location x, y.
+// It leaves the attribute and position of the Vt unchanged.
+func (t *Vt) WriteAtPosition(x, y uint16, attr console.Attr, b byte) error {
+	t.cons.Write(b, attr, x, y)
+	return nil
 }
 
 // Write implements io.Writer.
