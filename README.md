@@ -6,8 +6,7 @@
 Let's write an experimental OS in Go!
 
 ## Building
-To build the OS, clone the repo, cd to it, install qemu-system-x86_64 and vagrant and enter
+To build the OS, clone the repo, cd to it, install qemu-system-x86_64 and vagrant and enter these two commands.
 
         vagrant up
-        make iso
-        qemu-system-x86_64 ./build/kernel-x86_64.iso
+        make run
