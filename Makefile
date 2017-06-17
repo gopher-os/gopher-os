@@ -6,15 +6,16 @@ BUILD_ABS_DIR := $(CURDIR)/$(BUILD_DIR)
 kernel_target :=$(BUILD_DIR)/kernel-$(ARCH).bin
 iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 
+# If your go is called something else set it on the commandline, like
+# this: make run GO=go1.8
+GO ?= go
+
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
 
 LD := ld
 AS := nasm
 
-# If your go is called something else set it on the commandline, like
-# this: make run GO=go1.8
-GO ?= go
 GOOS := linux
 GOARCH := amd64
 GOROOT := $(shell $(GO) env GOROOT)
