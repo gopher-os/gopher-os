@@ -1,41 +1,27 @@
 package allocator
 
 import (
+	"bytes"
 	"testing"
 	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel/driver/video/console"
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
-	"github.com/achilleasa/gopher-os/kernel/mem"
 )
 
 func TestBootMemoryAllocator(t *testing.T) {
-	// Mock a tty to handle early.Printf output
-	mockConsoleFb := make([]byte, 160*25)
-	mockConsole := &console.Ega{}
-	mockConsole.Init(80, 25, uintptr(unsafe.Pointer(&mockConsoleFb[0])))
-	hal.ActiveTerminal.AttachTo(mockConsole)
-
 	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
 
-	var totalFreeFrames uint64
-	multiboot.VisitMemRegions(func(region *multiboot.MemoryMapEntry) bool {
-		if region.Type == multiboot.MemAvailable {
-			regionStartFrameIndex := uint64(((mem.Size(region.PhysAddress) + (mem.PageSize - 1)) & ^(mem.PageSize - 1)) >> mem.PageShift)
-			regionEndFrameIndex := uint64(((mem.Size(region.PhysAddress+region.Length) - (mem.PageSize - 1)) & ^(mem.PageSize - 1)) >> mem.PageShift)
-
-			totalFreeFrames += regionEndFrameIndex - regionStartFrameIndex + 1
-		}
-
-		return true
-	})
+	// region 1 extents get rounded to [0, 9f000] and provides 159 frames [0 to 158]
+	// region 1 uses the original extents [100000 - 7fe0000] and provides 32480 frames [256-32735]
+	var totalFreeFrames uint64 = 159 + 32480
 
 	var (
-		alloc           BootMemAllocator
+		alloc           bootMemAllocator
 		allocFrameCount uint64
 	)
-	for alloc.Init(); ; allocFrameCount++ {
+	for {
 		frame, err := alloc.AllocFrame()
 		if err != nil {
 			if err == errBootAllocOutOfMemory {
@@ -43,10 +29,9 @@ func TestBootMemoryAllocator(t *testing.T) {
 			}
 			t.Fatalf("[frame %d] unexpected allocator error: %v", allocFrameCount, err)
 		}
-
-		expAddress := uintptr(uint64(alloc.lastAllocIndex) * uint64(mem.PageSize))
-		if got := frame.Address(); got != expAddress {
-			t.Errorf("[frame %d] expected frame address to be 0x%x; got 0x%x", allocFrameCount, expAddress, got)
+		allocFrameCount++
+		if frame != alloc.lastAllocFrame {
+			t.Errorf("[frame %d] expected allocated frame to be %d; got %d", allocFrameCount, alloc.lastAllocFrame, frame)
 		}
 
 		if !frame.Valid() {
@@ -59,8 +44,32 @@ func TestBootMemoryAllocator(t *testing.T) {
 	}
 }
 
+func TestAllocatorPackageInit(t *testing.T) {
+	fb := mockTTY()
+	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
+
+	Init()
+
+	var buf bytes.Buffer
+	for i := 0; i < len(fb); i += 2 {
+		if fb[i] == 0x0 {
+			continue
+		}
+		buf.WriteByte(fb[i])
+	}
+
+	exp := "[boot_mem_alloc] system memory map:    [0x0000000000 - 0x000009fc00], size:     654336, type: available    [0x000009fc00 - 0x00000a0000], size:       1024, type: reserved    [0x00000f0000 - 0x0000100000], size:      65536, type: reserved    [0x0000100000 - 0x0007fe0000], size:  133038080, type: available    [0x0007fe0000 - 0x0008000000], size:     131072, type: reserved    [0x00fffc0000 - 0x0100000000], size:     262144, type: reserved[boot_mem_alloc] free memory: 130559Kb"
+	if got := buf.String(); got != exp {
+		t.Fatalf("expected printMemoryMap to generate the following output:\n%q\ngot:\n%q", exp, got)
+	}
+}
+
 var (
-	// A dump of multiboot data when running under qemu containing only the memory region tag.
+	// A dump of multiboot data when running under qemu containing only the
+	// memory region tag.  The dump encodes the following available memory
+	// regions:
+	// [     0 -   9fc00] length:    654336
+	// [100000 - 7fe0000] length: 133038080
 	multibootMemoryMap = []byte{
 		72, 5, 0, 0, 0, 0, 0, 0,
 		6, 0, 0, 0, 160, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0,
@@ -81,3 +90,13 @@ var (
 		24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 )
+
+func mockTTY() []byte {
+	// Mock a tty to handle early.Printf output
+	mockConsoleFb := make([]byte, 160*25)
+	mockConsole := &console.Ega{}
+	mockConsole.Init(80, 25, uintptr(unsafe.Pointer(&mockConsoleFb[0])))
+	hal.ActiveTerminal.AttachTo(mockConsole)
+
+	return mockConsoleFb
+}
