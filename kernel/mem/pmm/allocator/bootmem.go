@@ -1,10 +1,11 @@
-package pmm
+package allocator
 
 import (
 	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
 	"github.com/achilleasa/gopher-os/kernel/mem"
+	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 )
 
 var (
@@ -13,8 +14,8 @@ var (
 	// advanced memory allocator.
 	EarlyAllocator BootMemAllocator
 
-	errBootAllocUnsupportedPageSize = &kernel.Error{Module: "pmm.BootMemAllocator", Message: "allocator only support allocation requests of order(0)"}
-	errBootAllocOutOfMemory         = &kernel.Error{Module: "pmm.BootMemAllocator", Message: "out of memory"}
+	errBootAllocUnsupportedPageSize = &kernel.Error{Module: "boot_mem_alloc", Message: "allocator only support allocation requests of order(0)"}
+	errBootAllocOutOfMemory         = &kernel.Error{Module: "boot_mem_alloc", Message: "out of memory"}
 )
 
 // BootMemAllocator implements a rudimentary physical memory allocator which is used
@@ -64,9 +65,9 @@ func (alloc *BootMemAllocator) Init() {
 //
 // AllocFrame returns an error if no more memory can be allocated or when the
 // requested page order is > 0.
-func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, *kernel.Error) {
+func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (pmm.Frame, *kernel.Error) {
 	if order > 0 {
-		return InvalidFrame, errBootAllocUnsupportedPageSize
+		return pmm.InvalidFrame, errBootAllocUnsupportedPageSize
 	}
 
 	var (
@@ -102,11 +103,11 @@ func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (Frame, *kernel.E
 	})
 
 	if foundPageIndex == -1 {
-		return InvalidFrame, errBootAllocOutOfMemory
+		return pmm.InvalidFrame, errBootAllocOutOfMemory
 	}
 
 	alloc.allocCount++
 	alloc.lastAllocIndex = foundPageIndex
 
-	return Frame(foundPageIndex), nil
+	return pmm.Frame(foundPageIndex), nil
 }

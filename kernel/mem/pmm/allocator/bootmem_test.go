@@ -1,4 +1,4 @@
-package pmm
+package allocator
 
 import (
 	"testing"
