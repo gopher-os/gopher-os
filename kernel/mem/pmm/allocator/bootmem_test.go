@@ -36,7 +36,7 @@ func TestBootMemoryAllocator(t *testing.T) {
 		allocFrameCount uint64
 	)
 	for alloc.Init(); ; allocFrameCount++ {
-		frame, err := alloc.AllocFrame(mem.PageOrder(0))
+		frame, err := alloc.AllocFrame()
 		if err != nil {
 			if err == errBootAllocOutOfMemory {
 				break
@@ -56,11 +56,6 @@ func TestBootMemoryAllocator(t *testing.T) {
 
 	if allocFrameCount != totalFreeFrames {
 		t.Fatalf("expected allocator to allocate %d frames; allocated %d", totalFreeFrames, allocFrameCount)
-	}
-
-	// This allocator only works with order(0) blocks
-	if frame, err := alloc.AllocFrame(mem.PageOrder(1)); err != errBootAllocUnsupportedPageSize || frame.Valid() {
-		t.Fatalf("expected allocator to return errBootAllocUnsupportedPageSize and an invalid frame when requested to allocate a block with order > 0; got %v, %v", err, frame)
 	}
 }
 

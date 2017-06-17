@@ -9,13 +9,7 @@ import (
 )
 
 var (
-	// EarlyAllocator points to a static instance of the boot memory allocator
-	// which is used to bootstrap the kernel before initializing a more
-	// advanced memory allocator.
-	EarlyAllocator BootMemAllocator
-
-	errBootAllocUnsupportedPageSize = &kernel.Error{Module: "boot_mem_alloc", Message: "allocator only support allocation requests of order(0)"}
-	errBootAllocOutOfMemory         = &kernel.Error{Module: "boot_mem_alloc", Message: "out of memory"}
+	errBootAllocOutOfMemory = &kernel.Error{Module: "boot_mem_alloc", Message: "out of memory"}
 )
 
 // BootMemAllocator implements a rudimentary physical memory allocator which is used
@@ -63,13 +57,8 @@ func (alloc *BootMemAllocator) Init() {
 // AllocFrame scans the system memory regions reported by the bootloader and
 // reserves the next available free frame.
 //
-// AllocFrame returns an error if no more memory can be allocated or when the
-// requested page order is > 0.
-func (alloc *BootMemAllocator) AllocFrame(order mem.PageOrder) (pmm.Frame, *kernel.Error) {
-	if order > 0 {
-		return pmm.InvalidFrame, errBootAllocUnsupportedPageSize
-	}
-
+// AllocFrame returns an error if no more memory can be allocated.
+func (alloc *BootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
 	var (
 		foundPageIndex                           int64 = -1
 		regionStartPageIndex, regionEndPageIndex int64

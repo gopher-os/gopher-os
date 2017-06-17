@@ -32,7 +32,7 @@ func TestMapTemporaryAmd64(t *testing.T) {
 	nextPhysPage := 0
 
 	// allocFn returns pages from index 1; we keep index 0 for the P4 entry
-	allocFn := func(_ mem.PageOrder) (pmm.Frame, *kernel.Error) {
+	allocFn := func() (pmm.Frame, *kernel.Error) {
 		nextPhysPage++
 		pageAddr := unsafe.Pointer(&physPages[nextPhysPage][0])
 		return pmm.Frame(uintptr(pageAddr) >> mem.PageShift), nil
@@ -134,7 +134,7 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 
 		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
 
-		allocFn := func(_ mem.PageOrder) (pmm.Frame, *kernel.Error) {
+		allocFn := func() (pmm.Frame, *kernel.Error) {
 			return 0, expErr
 		}
 

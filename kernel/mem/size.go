@@ -10,11 +10,3 @@ const (
 	Mb        = 1024 * Kb
 	Gb        = 1024 * Mb
 )
-
-// PageOrder represents a power-of-two multiple of the base page size and is
-// used as an argument to page-based memory allocators.
-//
-// PageOrder(0) refers to a page with size PageSize << 0
-// PageOrder(1) refers to a page with size PageSize << 1
-// ...
-type PageOrder uint8
