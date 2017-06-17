@@ -11,5 +11,5 @@ var multibootInfoPtr uintptr
 // A global variable is passed as an argument to Kmain to prevent the compiler
 // from inlining the actual call and removing Kmain from the generated .o file.
 func main() {
-	kmain.Kmain(multibootInfoPtr)
+	kmain.Kmain(multibootInfoPtr, 0, 0)
 }

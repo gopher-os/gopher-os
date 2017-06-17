@@ -13,12 +13,12 @@ import (
 // allocated by the assembly code.
 //
 // The rt0 code passes the address of the multiboot info payload provided by the
-// bootloader.
+// bootloader as well as the physical addresses for the kernel start/end.
 //
 // Kmain is not expected to return. If it does, the rt0 code will halt the CPU.
 //
 //go:noinline
-func Kmain(multibootInfoPtr uintptr) {
+func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	multiboot.SetInfoPtr(multibootInfoPtr)
 
 	hal.InitTerminal()
