@@ -34,11 +34,22 @@ type bootMemAllocator struct {
 
 	// lastAllocFrame tracks the last allocated frame number.
 	lastAllocFrame pmm.Frame
+
+	// Keep track of kernel location so we exclude this region.
+	kernelStartAddr, kernelEndAddr   uintptr
+	kernelStartFrame, kernelEndFrame pmm.Frame
 }
 
 // init sets up the boot memory allocator internal state.
-func (alloc *bootMemAllocator) init() {
-	// TODO
+func (alloc *bootMemAllocator) init(kernelStart, kernelEnd uintptr) {
+	// round down kernel start to the nearest page and round up kernel end
+	// to the nearest page.
+	pageSizeMinus1 := uintptr(mem.PageSize - 1)
+	alloc.kernelStartAddr = kernelStart
+	alloc.kernelEndAddr = kernelEnd
+	alloc.kernelStartFrame = pmm.Frame((kernelStart & ^pageSizeMinus1) >> mem.PageShift)
+	alloc.kernelEndFrame = pmm.Frame(((kernelEnd+pageSizeMinus1) & ^pageSizeMinus1)>>mem.PageShift) - 1
+
 }
 
 // AllocFrame scans the system memory regions reported by the bootloader and
@@ -60,21 +71,37 @@ func (alloc *bootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
 		regionStartFrame := pmm.Frame(((region.PhysAddress + pageSizeMinus1) & ^pageSizeMinus1) >> mem.PageShift)
 		regionEndFrame := pmm.Frame(((region.PhysAddress+region.Length) & ^pageSizeMinus1)>>mem.PageShift) - 1
 
-		// Ignore already allocated regions
-		if alloc.allocCount != 0 && alloc.lastAllocFrame >= regionEndFrame {
+		// Skip over already allocated regions
+		if alloc.lastAllocFrame >= regionEndFrame {
 			return true
 		}
 
-		// The last allocated frame will be either pointing to a
-		// previous region or will point inside this region. In the
-		// first case (or if this is the first allocation) we select
-		// the start frame for this region. In the latter case we
-		// select the next available frame.
-		if alloc.allocCount == 0 || alloc.lastAllocFrame < regionStartFrame {
+		// If last frame used a different region and the kernel image
+		// is located at the beginning of this region OR we are in
+		// current region but lastAllocFrame + 1 points to the kernel
+		// start we need to jump to the page following the kernel end
+		// frame
+		if (alloc.lastAllocFrame <= regionStartFrame && alloc.kernelStartFrame == regionStartFrame) ||
+			(alloc.lastAllocFrame <= regionEndFrame && alloc.lastAllocFrame+1 == alloc.kernelStartFrame) {
+			//fmt.Printf("last: %d, case: 1, set last: %d\n", alloc.lastAllocFrame, alloc.kernelEndFrame+1)
+			alloc.lastAllocFrame = alloc.kernelEndFrame + 1
+		} else if alloc.lastAllocFrame < regionStartFrame || alloc.allocCount == 0 {
+			// we are in the previous region and need to jump to this one OR
+			// this is the first allocation and the region begins at frame 0
+			//fmt.Printf("last: %d, case: 2, set last: %d\n", alloc.lastAllocFrame, regionStartFrame)
 			alloc.lastAllocFrame = regionStartFrame
 		} else {
+			// we are in the region and we can select the next frame
+			//fmt.Printf("last: %d, case: 3, set last: %d\n", alloc.lastAllocFrame, alloc.lastAllocFrame+1)
 			alloc.lastAllocFrame++
 		}
+
+		// The above adjustment might push lastAllocFrame outside of the
+		// region end (e.g kernel ends at last page in the region)
+		if alloc.lastAllocFrame > regionEndFrame {
+			return true
+		}
+
 		err = nil
 		return false
 	})
@@ -100,12 +127,17 @@ func (alloc *bootMemAllocator) printMemoryMap() {
 		}
 		return true
 	})
-	early.Printf("[boot_mem_alloc] free memory: %dKb\n", uint64(totalFree/mem.Kb))
+	early.Printf("[boot_mem_alloc] available memory: %dKb\n", uint64(totalFree/mem.Kb))
+	early.Printf("[boot_mem_alloc] kernel loaded at 0x%x - 0x%x\n", alloc.kernelStartAddr, alloc.kernelEndAddr)
+	early.Printf("[boot_mem_alloc] size: %d bytes, reserved pages: %d\n",
+		uint64(alloc.kernelEndAddr-alloc.kernelStartAddr),
+		uint64(alloc.kernelEndFrame-alloc.kernelStartFrame+1),
+	)
 }
 
 // Init sets up the kernel physical memory allocation sub-system.
-func Init() *kernel.Error {
-	earlyAllocator.init()
+func Init(kernelStart, kernelEnd uintptr) *kernel.Error {
+	earlyAllocator.init(kernelStart, kernelEnd)
 	earlyAllocator.printMemoryMap()
 	return nil
 }

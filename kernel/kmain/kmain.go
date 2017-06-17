@@ -24,7 +24,7 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	hal.InitTerminal()
 	hal.ActiveTerminal.Clear()
 
-	if err := allocator.Init(); err != nil {
+	if err := allocator.Init(kernelStart, kernelEnd); err != nil {
 		early.Printf("[%s] error: %s\n", err.Module, err.Message)
 	}
 }
