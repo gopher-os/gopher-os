@@ -3,7 +3,8 @@ package kmain
 import (
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
-	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
+	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
+	"github.com/achilleasa/gopher-os/kernel/mem/pmm/allocator"
 )
 
 // Kmain is the only Go symbol that is visible (exported) from the rt0 initialization
@@ -12,16 +13,18 @@ import (
 // allocated by the assembly code.
 //
 // The rt0 code passes the address of the multiboot info payload provided by the
-// bootloader.
+// bootloader as well as the physical addresses for the kernel start/end.
 //
 // Kmain is not expected to return. If it does, the rt0 code will halt the CPU.
 //
 //go:noinline
-func Kmain(multibootInfoPtr uintptr) {
+func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	multiboot.SetInfoPtr(multibootInfoPtr)
 
 	hal.InitTerminal()
 	hal.ActiveTerminal.Clear()
 
-	pmm.EarlyAllocator.Init()
+	if err := allocator.Init(kernelStart, kernelEnd); err != nil {
+		early.Printf("[%s] error: %s\n", err.Module, err.Message)
+	}
 }

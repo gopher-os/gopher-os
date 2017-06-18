@@ -15,7 +15,7 @@ func TestPageDirectoryTableInitAmd64(t *testing.T) {
 		t.Skip("test requires amd64 runtime; skipping")
 	}
 
-	defer func(origFlushTLBEntry func(uintptr), origActivePDT func() uintptr, origMapTemporary func(pmm.Frame, FrameAllocator) (Page, *kernel.Error), origUnmap func(Page) *kernel.Error) {
+	defer func(origFlushTLBEntry func(uintptr), origActivePDT func() uintptr, origMapTemporary func(pmm.Frame, FrameAllocatorFn) (Page, *kernel.Error), origUnmap func(Page) *kernel.Error) {
 		flushTLBEntryFn = origFlushTLBEntry
 		activePDTFn = origActivePDT
 		mapTemporaryFn = origMapTemporary
@@ -32,7 +32,7 @@ func TestPageDirectoryTableInitAmd64(t *testing.T) {
 			return pdtFrame.Address()
 		}
 
-		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocator) (Page, *kernel.Error) {
+		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocatorFn) (Page, *kernel.Error) {
 			t.Fatal("unexpected call to MapTemporary")
 			return 0, nil
 		}
@@ -61,7 +61,7 @@ func TestPageDirectoryTableInitAmd64(t *testing.T) {
 			return 0
 		}
 
-		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocator) (Page, *kernel.Error) {
+		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocatorFn) (Page, *kernel.Error) {
 			return PageFromAddress(uintptr(unsafe.Pointer(&physPage[0]))), nil
 		}
 
@@ -110,7 +110,7 @@ func TestPageDirectoryTableInitAmd64(t *testing.T) {
 
 		expErr := &kernel.Error{Module: "test", Message: "error mapping page"}
 
-		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocator) (Page, *kernel.Error) {
+		mapTemporaryFn = func(_ pmm.Frame, _ FrameAllocatorFn) (Page, *kernel.Error) {
 			return 0, expErr
 		}
 
@@ -130,7 +130,7 @@ func TestPageDirectoryTableMapAmd64(t *testing.T) {
 		t.Skip("test requires amd64 runtime; skipping")
 	}
 
-	defer func(origFlushTLBEntry func(uintptr), origActivePDT func() uintptr, origMap func(Page, pmm.Frame, PageTableEntryFlag, FrameAllocator) *kernel.Error) {
+	defer func(origFlushTLBEntry func(uintptr), origActivePDT func() uintptr, origMap func(Page, pmm.Frame, PageTableEntryFlag, FrameAllocatorFn) *kernel.Error) {
 		flushTLBEntryFn = origFlushTLBEntry
 		activePDTFn = origActivePDT
 		mapFn = origMap
@@ -147,7 +147,7 @@ func TestPageDirectoryTableMapAmd64(t *testing.T) {
 			return pdtFrame.Address()
 		}
 
-		mapFn = func(_ Page, _ pmm.Frame, _ PageTableEntryFlag, _ FrameAllocator) *kernel.Error {
+		mapFn = func(_ Page, _ pmm.Frame, _ PageTableEntryFlag, _ FrameAllocatorFn) *kernel.Error {
 			return nil
 		}
 
@@ -182,7 +182,7 @@ func TestPageDirectoryTableMapAmd64(t *testing.T) {
 			return activePdtFrame.Address()
 		}
 
-		mapFn = func(_ Page, _ pmm.Frame, _ PageTableEntryFlag, _ FrameAllocator) *kernel.Error {
+		mapFn = func(_ Page, _ pmm.Frame, _ PageTableEntryFlag, _ FrameAllocatorFn) *kernel.Error {
 			return nil
 		}
 

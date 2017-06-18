@@ -7,6 +7,8 @@ SECTIONS {
 	 * but load it at physical address 1M */
 	. = VMA;
 
+	_kernel_start = .;
+
 	.text BLOCK(4K) : AT(ADDR(.text) - PAGE_OFFSET)
 	{
 		/* The multiboot header must be present in the first 4K of the kernel 
@@ -36,4 +38,6 @@ SECTIONS {
 		*(COMMON)
 		*(.bss)
 	}
+	
+	_kernel_end = ALIGN(4K);
 }

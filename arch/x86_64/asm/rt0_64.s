@@ -1,4 +1,5 @@
 ; vim: set ft=nasm :
+%include "constants.inc"
 
 section .bss
 align 8
@@ -55,8 +56,14 @@ _rt0_64_entry:
 	; Call the kernel entry point passing a pointer to the multiboot data
 	; copied by the 32-bit entry code
 	extern multiboot_data
+	extern _kernel_start
+	extern _kernel_end
 	extern kernel.Kmain
 	
+	mov rax, _kernel_end - PAGE_OFFSET
+	push rax
+	mov rax, _kernel_start - PAGE_OFFSET
+	push rax
 	mov rax, multiboot_data
 	push rax
 	call kernel.Kmain
