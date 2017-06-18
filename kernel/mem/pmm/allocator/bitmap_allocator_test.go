@@ -338,7 +338,7 @@ func TestBitmapAllocatorAllocAndFreeFrame(t *testing.T) {
 		for expFrame := pool.startFrame; expFrame <= pool.endFrame; expFrame++ {
 			got, err := alloc.AllocFrame()
 			if err != nil {
-				t.Fatalf("[pool %d] unexpected error: %v", err)
+				t.Fatalf("[pool %d] unexpected error: %v", poolIndex, err)
 			}
 
 			if got != expFrame {
@@ -364,7 +364,7 @@ func TestBitmapAllocatorAllocAndFreeFrame(t *testing.T) {
 	for poolIndex, pool := range alloc.pools {
 		for frame := pool.startFrame; frame <= pool.endFrame; frame++ {
 			if err := alloc.FreeFrame(frame); err != nil {
-				t.Fatalf("[pool %d] unexpected error: %v", err)
+				t.Fatalf("[pool %d] unexpected error: %v", poolIndex, err)
 			}
 		}
 
@@ -409,6 +409,11 @@ func TestAllocatorPackageInit(t *testing.T) {
 
 		mockTTY()
 		if err := Init(0x100000, 0x1fa7c8); err != nil {
+			t.Fatal(err)
+		}
+
+		// At this point sysAllocFrame should work
+		if _, err := sysAllocFrame(); err != nil {
 			t.Fatal(err)
 		}
 	})

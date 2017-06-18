@@ -306,11 +306,22 @@ func earlyAllocFrame() (pmm.Frame, *kernel.Error) {
 	return earlyAllocator.AllocFrame()
 }
 
+// sysAllocFrame is a helper that delegates a frame allocation request to the
+// bitmap allocator instance.
+func sysAllocFrame() (pmm.Frame, *kernel.Error) {
+	return FrameAllocator.AllocFrame()
+}
+
 // Init sets up the kernel physical memory allocation sub-system.
 func Init(kernelStart, kernelEnd uintptr) *kernel.Error {
 	earlyAllocator.init(kernelStart, kernelEnd)
 	earlyAllocator.printMemoryMap()
 
 	vmm.SetFrameAllocator(earlyAllocFrame)
-	return FrameAllocator.init()
+	if err := FrameAllocator.init(); err != nil {
+		return err
+	}
+	vmm.SetFrameAllocator(sysAllocFrame)
+
+	return nil
 }
