@@ -22,6 +22,13 @@ var (
 	mapFn           = vmm.Map
 )
 
+type markAs bool
+
+const (
+	markReserved markAs = false
+	markFree            = true
+)
+
 type framePool struct {
 	// startFrame is the frame number for the first page in this pool.
 	// each free bitmap entry i corresponds to frame (startFrame + i).
@@ -143,6 +150,43 @@ func (alloc *BitmapAllocator) setupPoolBitmaps() *kernel.Error {
 	})
 
 	return nil
+}
+
+// markFrame updates the reservation flag for the bitmap entry that corresponds
+// to the supplied frame.
+func (alloc *BitmapAllocator) markFrame(poolIndex int, frame pmm.Frame, flag markAs) {
+	if poolIndex < 0 || frame > alloc.pools[poolIndex].endFrame {
+		return
+	}
+
+	// The offset in the block is given by: frame % 64. As the bitmap uses a
+	// big-ending representation we need to set the bit at index: 63 - offset
+	relFrame := frame - alloc.pools[poolIndex].startFrame
+	block := relFrame >> 6
+	mask := uint64(1 << (63 - (relFrame - block<<6)))
+	switch flag {
+	case markFree:
+		alloc.pools[poolIndex].freeBitmap[block] &^= mask
+		alloc.pools[poolIndex].freeCount++
+		alloc.reservedPages--
+	case markReserved:
+		alloc.pools[poolIndex].freeBitmap[block] |= mask
+		alloc.pools[poolIndex].freeCount--
+		alloc.reservedPages++
+	}
+}
+
+// poolForFrame returns the index of the pool that contains frame or -1 if
+// the frame is not contained in any of the available memory pools (e.g it
+// points to a reserved memory region).
+func (alloc *BitmapAllocator) poolForFrame(frame pmm.Frame) int {
+	for poolIndex, pool := range alloc.pools {
+		if frame >= pool.startFrame && frame <= pool.endFrame {
+			return poolIndex
+		}
+	}
+
+	return -1
 }
 
 // earlyAllocFrame is a helper that delegates a frame allocation request to the

@@ -130,6 +130,93 @@ func TestSetupPoolBitmapsErrors(t *testing.T) {
 	})
 }
 
+func TestBitmapAllocatorMarkFrame(t *testing.T) {
+	var alloc = BitmapAllocator{
+		pools: []framePool{
+			{
+				startFrame: pmm.Frame(0),
+				endFrame:   pmm.Frame(127),
+				freeCount:  128,
+				freeBitmap: make([]uint64, 2),
+			},
+		},
+		totalPages: 128,
+	}
+
+	lastFrame := pmm.Frame(alloc.totalPages)
+	for frame := pmm.Frame(0); frame < lastFrame; frame++ {
+		alloc.markFrame(0, frame, markReserved)
+
+		block := uint64(frame / 64)
+		blockOffset := uint64(frame % 64)
+		bitIndex := (63 - blockOffset)
+		bitMask := uint64(1 << bitIndex)
+
+		if alloc.pools[0].freeBitmap[block]&bitMask != bitMask {
+			t.Errorf("[frame %d] expected block[%d], bit %d to be set", frame, block, bitIndex)
+		}
+
+		alloc.markFrame(0, frame, markFree)
+
+		if alloc.pools[0].freeBitmap[block]&bitMask != 0 {
+			t.Errorf("[frame %d] expected block[%d], bit %d to be unset", frame, block, bitIndex)
+		}
+	}
+
+	// Calling markFrame with a frame not part of the pool should be a no-op
+	alloc.markFrame(0, pmm.Frame(0xbadf00d), markReserved)
+	for blockIndex, block := range alloc.pools[0].freeBitmap {
+		if block != 0 {
+			t.Errorf("expected all blocks to be set to 0; block %d is set to %d", blockIndex, block)
+		}
+	}
+
+	// Calling markFrame with a negative pool index should be a no-op
+	alloc.markFrame(-1, pmm.Frame(0), markReserved)
+	for blockIndex, block := range alloc.pools[0].freeBitmap {
+		if block != 0 {
+			t.Errorf("expected all blocks to be set to 0; block %d is set to %d", blockIndex, block)
+		}
+	}
+}
+
+func TestBitmapAllocatorPoolForFrame(t *testing.T) {
+	var alloc = BitmapAllocator{
+		pools: []framePool{
+			{
+				startFrame: pmm.Frame(0),
+				endFrame:   pmm.Frame(63),
+				freeCount:  64,
+				freeBitmap: make([]uint64, 1),
+			},
+			{
+				startFrame: pmm.Frame(128),
+				endFrame:   pmm.Frame(191),
+				freeCount:  64,
+				freeBitmap: make([]uint64, 1),
+			},
+		},
+		totalPages: 128,
+	}
+
+	specs := []struct {
+		frame    pmm.Frame
+		expIndex int
+	}{
+		{pmm.Frame(0), 0},
+		{pmm.Frame(63), 0},
+		{pmm.Frame(64), -1},
+		{pmm.Frame(128), 1},
+		{pmm.Frame(192), -1},
+	}
+
+	for specIndex, spec := range specs {
+		if got := alloc.poolForFrame(spec.frame); got != spec.expIndex {
+			t.Errorf("[spec %d] expected to get pool index %d; got %d", specIndex, spec.expIndex, got)
+		}
+	}
+}
+
 func TestAllocatorPackageInit(t *testing.T) {
 	defer func() {
 		mapFn = vmm.Map
