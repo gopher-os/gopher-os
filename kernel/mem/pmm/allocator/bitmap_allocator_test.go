@@ -1,8 +1,8 @@
 package allocator
 
 import (
-	"bytes"
 	"math"
+	"strconv"
 	"testing"
 	"unsafe"
 
@@ -217,6 +217,102 @@ func TestBitmapAllocatorPoolForFrame(t *testing.T) {
 	}
 }
 
+func TestBitmapAllocatorReserveKernelFrames(t *testing.T) {
+	var alloc = BitmapAllocator{
+		pools: []framePool{
+			{
+				startFrame: pmm.Frame(0),
+				endFrame:   pmm.Frame(7),
+				freeCount:  8,
+				freeBitmap: make([]uint64, 1),
+			},
+			{
+				startFrame: pmm.Frame(64),
+				endFrame:   pmm.Frame(191),
+				freeCount:  128,
+				freeBitmap: make([]uint64, 2),
+			},
+		},
+		totalPages: 136,
+	}
+
+	// kernel occupies 16 frames and starts at the beginning of pool 1
+	earlyAllocator.kernelStartFrame = pmm.Frame(64)
+	earlyAllocator.kernelEndFrame = pmm.Frame(79)
+	kernelSizePages := uint32(earlyAllocator.kernelEndFrame - earlyAllocator.kernelStartFrame + 1)
+	alloc.reserveKernelFrames()
+
+	if exp, got := kernelSizePages, alloc.reservedPages; got != exp {
+		t.Fatalf("expected reserved page counter to be %d; got %d", exp, got)
+	}
+
+	if exp, got := uint32(8), alloc.pools[0].freeCount; got != exp {
+		t.Fatalf("expected free count for pool 0 to be %d; got %d", exp, got)
+	}
+
+	if exp, got := 128-kernelSizePages, alloc.pools[1].freeCount; got != exp {
+		t.Fatalf("expected free count for pool 1 to be %d; got %d", exp, got)
+	}
+
+	// The first 16 bits of block 0 in pool 1 should all be set to 1
+	if exp, got := uint64(((1<<16)-1)<<48), alloc.pools[1].freeBitmap[0]; got != exp {
+		t.Fatalf("expected block 0 in pool 1 to be:\n%064s\ngot:\n%064s",
+			strconv.FormatUint(exp, 2),
+			strconv.FormatUint(got, 2),
+		)
+	}
+}
+
+func TestBitmapAllocatorReserveEarlyAllocatorFrames(t *testing.T) {
+	var alloc = BitmapAllocator{
+		pools: []framePool{
+			{
+				startFrame: pmm.Frame(0),
+				endFrame:   pmm.Frame(63),
+				freeCount:  64,
+				freeBitmap: make([]uint64, 1),
+			},
+			{
+				startFrame: pmm.Frame(64),
+				endFrame:   pmm.Frame(191),
+				freeCount:  128,
+				freeBitmap: make([]uint64, 2),
+			},
+		},
+		totalPages: 64,
+	}
+
+	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
+
+	// Simulate 16 allocations made using the early allocator in region 0
+	// as reported by the multiboot data and move the kernel to pool 1
+	allocCount := uint32(16)
+	earlyAllocator.allocCount = uint64(allocCount)
+	earlyAllocator.kernelStartFrame = pmm.Frame(256)
+	earlyAllocator.kernelEndFrame = pmm.Frame(256)
+	alloc.reserveEarlyAllocatorFrames()
+
+	if exp, got := allocCount, alloc.reservedPages; got != exp {
+		t.Fatalf("expected reserved page counter to be %d; got %d", exp, got)
+	}
+
+	if exp, got := 64-allocCount, alloc.pools[0].freeCount; got != exp {
+		t.Fatalf("expected free count for pool 0 to be %d; got %d", exp, got)
+	}
+
+	if exp, got := uint32(128), alloc.pools[1].freeCount; got != exp {
+		t.Fatalf("expected free count for pool 1 to be %d; got %d", exp, got)
+	}
+
+	// The first 16 bits of block 0 in pool 0 should all be set to 1
+	if exp, got := uint64(((1<<16)-1)<<48), alloc.pools[0].freeBitmap[0]; got != exp {
+		t.Fatalf("expected block 0 in pool 0 to be:\n%064s\ngot:\n%064s",
+			strconv.FormatUint(exp, 2),
+			strconv.FormatUint(got, 2),
+		)
+	}
+}
+
 func TestAllocatorPackageInit(t *testing.T) {
 	defer func() {
 		mapFn = vmm.Map
@@ -225,8 +321,6 @@ func TestAllocatorPackageInit(t *testing.T) {
 
 	var (
 		physMem = make([]byte, 2*mem.PageSize)
-		fb      = mockTTY()
-		buf     bytes.Buffer
 	)
 	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
 
@@ -239,20 +333,9 @@ func TestAllocatorPackageInit(t *testing.T) {
 			return uintptr(unsafe.Pointer(&physMem[0])), nil
 		}
 
+		mockTTY()
 		if err := Init(0x100000, 0x1fa7c8); err != nil {
 			t.Fatal(err)
-		}
-
-		for i := 0; i < len(fb); i += 2 {
-			if fb[i] == 0x0 {
-				continue
-			}
-			buf.WriteByte(fb[i])
-		}
-
-		exp := "[boot_mem_alloc] system memory map:    [0x0000000000 - 0x000009fc00], size:     654336, type: available    [0x000009fc00 - 0x00000a0000], size:       1024, type: reserved    [0x00000f0000 - 0x0000100000], size:      65536, type: reserved    [0x0000100000 - 0x0007fe0000], size:  133038080, type: available    [0x0007fe0000 - 0x0008000000], size:     131072, type: reserved    [0x00fffc0000 - 0x0100000000], size:     262144, type: reserved[boot_mem_alloc] available memory: 130559Kb[boot_mem_alloc] kernel loaded at 0x100000 - 0x1fa7c8[boot_mem_alloc] size: 1025992 bytes, reserved pages: 251"
-		if got := buf.String(); got != exp {
-			t.Fatalf("expected printMemoryMap to generate the following output:\n%q\ngot:\n%q", exp, got)
 		}
 	})
 

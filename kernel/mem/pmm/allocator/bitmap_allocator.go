@@ -6,6 +6,7 @@ import (
 
 	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
+	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 	"github.com/achilleasa/gopher-os/kernel/mem/vmm"
@@ -64,7 +65,14 @@ type BitmapAllocator struct {
 // init allocates space for the allocator structures using the early bootmem
 // allocator and flags any allocated pages as reserved.
 func (alloc *BitmapAllocator) init() *kernel.Error {
-	return alloc.setupPoolBitmaps()
+	if err := alloc.setupPoolBitmaps(); err != nil {
+		return err
+	}
+
+	alloc.reserveKernelFrames()
+	alloc.reserveEarlyAllocatorFrames()
+	alloc.printStats()
+	return nil
 }
 
 // setupPoolBitmaps uses the early allocator and vmm region reservation helper
@@ -187,6 +195,47 @@ func (alloc *BitmapAllocator) poolForFrame(frame pmm.Frame) int {
 	}
 
 	return -1
+}
+
+// reserveKernelFrames makes as reserved the bitmap entries for the frames
+// occupied by the kernel image.
+func (alloc *BitmapAllocator) reserveKernelFrames() {
+	// Flag frames used by kernel image as reserved. Since the kernel must
+	// occupy a contiguous memory block we assume that all its frames will
+	// fall into one of the available memory pools
+	poolIndex := alloc.poolForFrame(earlyAllocator.kernelStartFrame)
+	for frame := earlyAllocator.kernelStartFrame; frame <= earlyAllocator.kernelEndFrame; frame++ {
+		alloc.markFrame(poolIndex, frame, markReserved)
+	}
+}
+
+// reserveEarlyAllocatorFrames makes as reserved the bitmap entries for the frames
+// already allocated by the early allocator.
+func (alloc *BitmapAllocator) reserveEarlyAllocatorFrames() {
+	// We now need to decomission the early allocator by flagging all frames
+	// allocated by it as reserved. The allocator itself does not track
+	// individual frames but only a counter of allocated frames. To get
+	// the list of frames we reset its internal state and "replay" the
+	// allocation requests to get the correct frames.
+	allocCount := earlyAllocator.allocCount
+	earlyAllocator.allocCount, earlyAllocator.lastAllocFrame = 0, 0
+	for i := uint64(0); i < allocCount; i++ {
+		frame, _ := earlyAllocator.AllocFrame()
+		alloc.markFrame(
+			alloc.poolForFrame(frame),
+			frame,
+			markReserved,
+		)
+	}
+}
+
+func (alloc *BitmapAllocator) printStats() {
+	early.Printf(
+		"[bitmap_alloc] page stats: free: %d/%d (%d reserved)\n",
+		alloc.totalPages-alloc.reservedPages,
+		alloc.totalPages,
+		alloc.reservedPages,
+	)
 }
 
 // earlyAllocFrame is a helper that delegates a frame allocation request to the
