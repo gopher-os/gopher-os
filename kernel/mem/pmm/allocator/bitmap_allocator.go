@@ -1,6 +1,7 @@
 package allocator
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 
@@ -16,6 +17,10 @@ var (
 	// FrameAllocator is a BitmapAllocator instance that serves as the
 	// primary allocator for reserving pages.
 	FrameAllocator BitmapAllocator
+
+	errBitmapAllocOutOfMemory     = &kernel.Error{Module: "bitmap_alloc", Message: "out of memory"}
+	errBitmapAllocFrameNotManaged = &kernel.Error{Module: "bitmap_alloc", Message: "frame not managed by this allocator"}
+	errBitmapAllocDoubleFree      = &kernel.Error{Module: "bitmap_alloc", Message: "frame is already free"}
 
 	// The followning functions are used by tests to mock calls to the vmm package
 	// and are automatically inlined by the compiler.
@@ -236,6 +241,60 @@ func (alloc *BitmapAllocator) printStats() {
 		alloc.totalPages,
 		alloc.reservedPages,
 	)
+}
+
+// AllocFrame reserves and returns a physical memory frame. An error will be
+// returned if no more memory can be allocated.
+func (alloc *BitmapAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
+	for poolIndex := 0; poolIndex < len(alloc.pools); poolIndex++ {
+		if alloc.pools[poolIndex].freeCount == 0 {
+			continue
+		}
+
+		fullBlock := uint64(math.MaxUint64)
+		for blockIndex, block := range alloc.pools[poolIndex].freeBitmap {
+			if block == fullBlock {
+				continue
+			}
+
+			// Block has at least one free slot; we need to scan its bits
+			for blockOffset, mask := 0, uint64(1<<63); mask > 0; blockOffset, mask = blockOffset+1, mask>>1 {
+				if block&mask != 0 {
+					continue
+				}
+
+				alloc.pools[poolIndex].freeCount--
+				alloc.pools[poolIndex].freeBitmap[blockIndex] |= mask
+				alloc.reservedPages++
+				return alloc.pools[poolIndex].startFrame + pmm.Frame((blockIndex<<6)+blockOffset), nil
+			}
+		}
+	}
+
+	return pmm.InvalidFrame, errBitmapAllocOutOfMemory
+}
+
+// FreeFrame releases a frame previously allocated via a call to AllocFrame.
+// Trying to release a frame not part of the allocator pools or a frame that
+// is already marked as free will cause an error to be returned.
+func (alloc *BitmapAllocator) FreeFrame(frame pmm.Frame) *kernel.Error {
+	poolIndex := alloc.poolForFrame(frame)
+	if poolIndex < 0 {
+		return errBitmapAllocFrameNotManaged
+	}
+
+	relFrame := frame - alloc.pools[poolIndex].startFrame
+	block := relFrame >> 6
+	mask := uint64(1 << (63 - (relFrame - block<<6)))
+
+	if alloc.pools[poolIndex].freeBitmap[block]&mask == 0 {
+		return errBitmapAllocDoubleFree
+	}
+
+	alloc.pools[poolIndex].freeBitmap[block] &^= mask
+	alloc.pools[poolIndex].freeCount++
+	alloc.reservedPages--
+	return nil
 }
 
 // earlyAllocFrame is a helper that delegates a frame allocation request to the

@@ -313,6 +313,80 @@ func TestBitmapAllocatorReserveEarlyAllocatorFrames(t *testing.T) {
 	}
 }
 
+func TestBitmapAllocatorAllocAndFreeFrame(t *testing.T) {
+	var alloc = BitmapAllocator{
+		pools: []framePool{
+			{
+				startFrame: pmm.Frame(0),
+				endFrame:   pmm.Frame(7),
+				freeCount:  8,
+				// only the first 8 bits of block 0 are used
+				freeBitmap: make([]uint64, 1),
+			},
+			{
+				startFrame: pmm.Frame(64),
+				endFrame:   pmm.Frame(191),
+				freeCount:  128,
+				freeBitmap: make([]uint64, 2),
+			},
+		},
+		totalPages: 136,
+	}
+
+	// Test Alloc
+	for poolIndex, pool := range alloc.pools {
+		for expFrame := pool.startFrame; expFrame <= pool.endFrame; expFrame++ {
+			got, err := alloc.AllocFrame()
+			if err != nil {
+				t.Fatalf("[pool %d] unexpected error: %v", err)
+			}
+
+			if got != expFrame {
+				t.Errorf("[pool %d] expected allocated frame to be %d; got %d", poolIndex, expFrame, got)
+			}
+		}
+
+		if alloc.pools[poolIndex].freeCount != 0 {
+			t.Errorf("[pool %d] expected free count to be 0; got %d", poolIndex, alloc.pools[poolIndex].freeCount)
+		}
+	}
+
+	if alloc.reservedPages != alloc.totalPages {
+		t.Errorf("expected reservedPages to match totalPages(%d); got %d", alloc.totalPages, alloc.reservedPages)
+	}
+
+	if _, err := alloc.AllocFrame(); err != errBitmapAllocOutOfMemory {
+		t.Fatalf("expected error errBitmapAllocOutOfMemory; got %v", err)
+	}
+
+	// Test Free
+	expFreeCount := []uint32{8, 128}
+	for poolIndex, pool := range alloc.pools {
+		for frame := pool.startFrame; frame <= pool.endFrame; frame++ {
+			if err := alloc.FreeFrame(frame); err != nil {
+				t.Fatalf("[pool %d] unexpected error: %v", err)
+			}
+		}
+
+		if alloc.pools[poolIndex].freeCount != expFreeCount[poolIndex] {
+			t.Errorf("[pool %d] expected free count to be %d; got %d", poolIndex, expFreeCount[poolIndex], alloc.pools[poolIndex].freeCount)
+		}
+	}
+
+	if alloc.reservedPages != 0 {
+		t.Errorf("expected reservedPages to be 0; got %d", alloc.reservedPages)
+	}
+
+	// Test Free errors
+	if err := alloc.FreeFrame(pmm.Frame(0)); err != errBitmapAllocDoubleFree {
+		t.Fatalf("expected error errBitmapAllocDoubleFree; got %v", err)
+	}
+
+	if err := alloc.FreeFrame(pmm.Frame(0xbadf00d)); err != errBitmapAllocFrameNotManaged {
+		t.Fatalf("expected error errBitmapFrameNotManaged; got %v", err)
+	}
+}
+
 func TestAllocatorPackageInit(t *testing.T) {
 	defer func() {
 		mapFn = vmm.Map
