@@ -6,7 +6,19 @@
 Let's write an experimental OS in Go!
 
 ## Building
-To build the OS, clone the repo, cd to it, install qemu-system-x86_64 and vagrant and enter these two commands.
 
-        vagrant up
-        make run
+There are several dependancies you need to install for this to work.
+
+You need to install qemu-system-x86_64, vagrant and of course golang.
+
+On MacOS with homebrew run these commands to install the dependancies.
+
+        $ brew install qemu
+        $ brew cask install virtualbox
+        $ brew cask install vagrant
+        $ brew cask install vagrant-manager
+
+To build the OS, clone the repo, cd to it, install the dependancies and enter these two commands.
+
+        $ vagrant up
+        $ make run
