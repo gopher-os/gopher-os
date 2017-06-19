@@ -23,14 +23,11 @@ var (
 	errNoHugePageSupport = &kernel.Error{Module: "vmm", Message: "huge pages are not supported"}
 )
 
-// FrameAllocatorFn is a function that can allocate physical frames.
-type FrameAllocatorFn func() (pmm.Frame, *kernel.Error)
-
 // Map establishes a mapping between a virtual page and a physical memory frame
 // using the currently active page directory table. Calls to Map will use the
 // supplied physical frame allocator to initialize missing page tables at each
 // paging level supported by the MMU.
-func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag, allocFn FrameAllocatorFn) *kernel.Error {
+func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 	var err *kernel.Error
 
 	walk(page.Address(), func(pteLevel uint8, pte *pageTableEntry) bool {
@@ -53,7 +50,7 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag, allocFn FrameAllo
 		// physical frame for it map it and clear its contents.
 		if !pte.HasFlags(FlagPresent) {
 			var newTableFrame pmm.Frame
-			newTableFrame, err = allocFn()
+			newTableFrame, err = frameAllocator()
 			if err != nil {
 				return false
 			}
@@ -78,8 +75,8 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag, allocFn FrameAllo
 // to a fixed virtual address overwriting any previous mapping. The temporary
 // mapping mechanism is primarily used by the kernel to access and initialize
 // inactive page tables.
-func MapTemporary(frame pmm.Frame, allocFn FrameAllocatorFn) (Page, *kernel.Error) {
-	if err := Map(PageFromAddress(tempMappingAddr), frame, FlagRW, allocFn); err != nil {
+func MapTemporary(frame pmm.Frame) (Page, *kernel.Error) {
+	if err := Map(PageFromAddress(tempMappingAddr), frame, FlagRW); err != nil {
 		return 0, err
 	}
 

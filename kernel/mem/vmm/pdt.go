@@ -39,7 +39,7 @@ type PageDirectoryTable struct {
 // Init can:
 //  - call mem.Memset to clear the frame contents
 //  - setup a recursive mapping for the last table entry to the page itself.
-func (pdt *PageDirectoryTable) Init(pdtFrame pmm.Frame, allocFn FrameAllocatorFn) *kernel.Error {
+func (pdt *PageDirectoryTable) Init(pdtFrame pmm.Frame) *kernel.Error {
 	pdt.pdtFrame = pdtFrame
 
 	// Check active PDT physical address. If it matches the input pdt then
@@ -50,7 +50,7 @@ func (pdt *PageDirectoryTable) Init(pdtFrame pmm.Frame, allocFn FrameAllocatorFn
 	}
 
 	// Create a temporary mapping for the pdt frame so we can work on it
-	pdtPage, err := mapTemporaryFn(pdtFrame, allocFn)
+	pdtPage, err := mapTemporaryFn(pdtFrame)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (pdt *PageDirectoryTable) Init(pdtFrame pmm.Frame, allocFn FrameAllocatorFn
 // function with the difference that it also supports inactive page PDTs by
 // establishing a temporary mapping so that Map() can access the inactive PDT
 // entries.
-func (pdt PageDirectoryTable) Map(page Page, frame pmm.Frame, flags PageTableEntryFlag, allocFn FrameAllocatorFn) *kernel.Error {
+func (pdt PageDirectoryTable) Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 	var (
 		activePdtFrame   = pmm.Frame(activePDTFn() >> mem.PageShift)
 		lastPdtEntryAddr uintptr
@@ -89,7 +89,7 @@ func (pdt PageDirectoryTable) Map(page Page, frame pmm.Frame, flags PageTableEnt
 		flushTLBEntryFn(lastPdtEntryAddr)
 	}
 
-	err := mapFn(page, frame, flags, allocFn)
+	err := mapFn(page, frame, flags)
 
 	if activePdtFrame != pdt.pdtFrame {
 		lastPdtEntry.SetFrame(activePdtFrame)

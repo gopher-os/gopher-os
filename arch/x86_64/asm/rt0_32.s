@@ -297,10 +297,11 @@ _rt0_enter_long_mode:
 	or eax, 1 << 5
 	mov cr4, eax
 
-	; Now enable long mode by modifying the EFER MSR
+	; Now enable long mode (bit 8) and the no-execute support (bit 11) by 
+	; modifying the EFER MSR
 	mov ecx, 0xc0000080
 	rdmsr	; read msr value to eax
-	or eax, 1 << 8
+	or eax, (1 << 8) | (1<<11)
 	wrmsr
 
 	; Finally enable paging
