@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel"
+	"github.com/achilleasa/gopher-os/kernel/cpu"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 )
@@ -11,11 +12,11 @@ import (
 var (
 	// activePDTFn is used by tests to override calls to activePDT which
 	// will cause a fault if called in user-mode.
-	activePDTFn = activePDT
+	activePDTFn = cpu.ActivePDT
 
 	// switchPDTFn is used by tests to override calls to switchPDT which
 	// will cause a fault if called in user-mode.
-	switchPDTFn = switchPDT
+	switchPDTFn = cpu.SwitchPDT
 
 	// mapFn is used by tests and is automatically inlined by the compiler.
 	mapFn = Map
