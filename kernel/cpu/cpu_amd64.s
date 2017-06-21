@@ -1,5 +1,18 @@
 #include "textflag.h"
 
+TEXT ·EnableInterrupts(SB),NOSPLIT,$0
+	STI
+	RET
+
+TEXT ·DisableInterrupts(SB),NOSPLIT,$0
+	CLI
+	RET
+
+TEXT ·Halt(SB),NOSPLIT,$0
+	CLI
+	HLT
+	RET
+
 TEXT ·FlushTLBEntry(SB),NOSPLIT,$0
 	INVLPG virtAddr+0(FP)
 	RET

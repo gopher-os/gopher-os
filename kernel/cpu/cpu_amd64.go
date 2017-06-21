@@ -1,5 +1,14 @@
 package cpu
 
+// EnableInterrupts enables interrupt handling.
+func EnableInterrupts()
+
+// DisableInterrupts disables interrupt handling.
+func DisableInterrupts()
+
+// Halt stops instruction execution.
+func Halt()
+
 // FlushTLBEntry flushes a TLB entry for a particular virtual address.
 func FlushTLBEntry(virtAddr uintptr)
 
