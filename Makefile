@@ -59,6 +59,7 @@ go.o:
 	@echo "[objcopy] creating global symbol alias 'kernel.Kmain' for 'github.com/achilleasa/gopher-os/kernel.Kmain' in go.o"
 	@objcopy \
 		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kmain.Kmain$$" | cut -d' ' -f1` \
+		--globalize-symbol _rt0_interrupt_handlers \
 		 $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
 
 binutils_version_check:
