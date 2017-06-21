@@ -18,3 +18,6 @@ func SwitchPDT(pdtPhysAddr uintptr)
 
 // ActivePDT returns the physical address of the currently active page table.
 func ActivePDT() uintptr
+
+// ReadCR2 returns the value stored in the CR2 register.
+func ReadCR2() uint64

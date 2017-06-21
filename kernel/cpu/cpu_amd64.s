@@ -27,3 +27,7 @@ TEXT ·ActivePDT(SB),NOSPLIT,$0
 	MOVQ AX, ret+0(FP)
 	RET
 
+TEXT ·ReadCR2(SB),NOSPLIT,$0
+	MOVQ CR2, AX
+	MOVQ AX, ret+0(FP)
+	RET
