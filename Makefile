@@ -111,7 +111,7 @@ iso:
 endif
 
 run: iso
-	qemu-system-$(ARCH) -cdrom $(iso_target)
+	qemu-system-$(ARCH) -cdrom $(iso_target) -d int,cpu_reset -no-reboot
 
 gdb: iso
 	qemu-system-$(ARCH) -M accel=tcg -s -S -cdrom $(iso_target) &
