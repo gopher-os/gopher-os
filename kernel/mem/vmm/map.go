@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	"github.com/achilleasa/gopher-os/kernel"
+	"github.com/achilleasa/gopher-os/kernel/cpu"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 )
@@ -18,7 +19,7 @@ var (
 
 	// flushTLBEntryFn is used by tests to override calls to flushTLBEntry
 	// which will cause a fault if called in user-mode.
-	flushTLBEntryFn = flushTLBEntry
+	flushTLBEntryFn = cpu.FlushTLBEntry
 
 	errNoHugePageSupport = &kernel.Error{Module: "vmm", Message: "huge pages are not supported"}
 )

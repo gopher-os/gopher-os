@@ -321,6 +321,7 @@ _rt0_enter_long_mode:
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
+	mov ss, ax
 
 	jmp CS_SEG:.flush_gdt - PAGE_OFFSET
 .flush_gdt:

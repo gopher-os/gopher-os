@@ -1,10 +1,11 @@
 package kmain
 
 import (
+	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
-	"github.com/achilleasa/gopher-os/kernel/kfmt/early"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm/allocator"
+	"github.com/achilleasa/gopher-os/kernel/mem/vmm"
 )
 
 // Kmain is the only Go symbol that is visible (exported) from the rt0 initialization
@@ -24,7 +25,10 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	hal.InitTerminal()
 	hal.ActiveTerminal.Clear()
 
-	if err := allocator.Init(kernelStart, kernelEnd); err != nil {
-		early.Printf("[%s] error: %s\n", err.Module, err.Message)
+	var err *kernel.Error
+	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
+		kernel.Panic(err)
+	} else if err = vmm.Init(); err != nil {
+		kernel.Panic(err)
 	}
 }
