@@ -11,12 +11,98 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/driver/video/console"
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/irq"
+	"github.com/achilleasa/gopher-os/kernel/mem"
+	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 )
 
-func TestPageFaultHandler(t *testing.T) {
-	defer func() {
+func TestRecoverablePageFault(t *testing.T) {
+	var (
+		frame       irq.Frame
+		regs        irq.Regs
+		panicCalled bool
+		pageEntry   pageTableEntry
+		origPage    = make([]byte, mem.PageSize)
+		clonedPage  = make([]byte, mem.PageSize)
+		err         = &kernel.Error{Module: "test", Message: "something went wrong"}
+	)
+
+	defer func(origPtePtr func(uintptr) unsafe.Pointer) {
+		ptePtrFn = origPtePtr
 		panicFn = kernel.Panic
 		readCR2Fn = cpu.ReadCR2
+		frameAllocator = nil
+		mapTemporaryFn = MapTemporary
+		unmapFn = Unmap
+		flushTLBEntryFn = cpu.FlushTLBEntry
+	}(ptePtrFn)
+
+	specs := []struct {
+		pteFlags   PageTableEntryFlag
+		allocError *kernel.Error
+		mapError   *kernel.Error
+		expPanic   bool
+	}{
+		// Missing pge
+		{0, nil, nil, true},
+		// Page is present but CoW flag not set
+		{FlagPresent, nil, nil, true},
+		// Page is present but both CoW and RW flags set
+		{FlagPresent | FlagRW | FlagCopyOnWrite, nil, nil, true},
+		// Page is present with CoW flag set but allocating a page copy fails
+		{FlagPresent | FlagCopyOnWrite, err, nil, true},
+		// Page is present with CoW flag set but mapping the page copy fails
+		{FlagPresent | FlagCopyOnWrite, nil, err, true},
+		// Page is present with CoW flag set
+		{FlagPresent | FlagCopyOnWrite, nil, nil, false},
+	}
+
+	mockTTY()
+
+	panicFn = func(_ *kernel.Error) {
+		panicCalled = true
+	}
+
+	ptePtrFn = func(entry uintptr) unsafe.Pointer { return unsafe.Pointer(&pageEntry) }
+	readCR2Fn = func() uint64 { return uint64(uintptr(unsafe.Pointer(&origPage[0]))) }
+	unmapFn = func(_ Page) *kernel.Error { return nil }
+	flushTLBEntryFn = func(_ uintptr) {}
+
+	for specIndex, spec := range specs {
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), spec.mapError }
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&clonedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), spec.allocError
+		})
+
+		for i := 0; i < len(origPage); i++ {
+			origPage[i] = byte(i % 256)
+			clonedPage[i] = 0
+		}
+
+		panicCalled = false
+		pageEntry = 0
+		pageEntry.SetFlags(spec.pteFlags)
+
+		pageFaultHandler(2, &frame, &regs)
+
+		if spec.expPanic != panicCalled {
+			t.Errorf("[spec %d] expected panic %t; got %t", specIndex, spec.expPanic, panicCalled)
+		}
+
+		if !spec.expPanic {
+			for i := 0; i < len(origPage); i++ {
+				if origPage[i] != clonedPage[i] {
+					t.Errorf("[spec %d] expected clone page to be a copy of the original page; mismatch at index %d", specIndex, i)
+				}
+			}
+		}
+	}
+
+}
+
+func TestNonRecoverablePageFault(t *testing.T) {
+	defer func() {
+		panicFn = kernel.Panic
 	}()
 
 	specs := []struct {
@@ -71,10 +157,6 @@ func TestPageFaultHandler(t *testing.T) {
 		frame irq.Frame
 	)
 
-	readCR2Fn = func() uint64 {
-		return 0xbadf00d000
-	}
-
 	panicCalled := false
 	panicFn = func(_ *kernel.Error) {
 		panicCalled = true
@@ -84,7 +166,7 @@ func TestPageFaultHandler(t *testing.T) {
 		fb := mockTTY()
 		panicCalled = false
 
-		pageFaultHandler(spec.errCode, &frame, &regs)
+		nonRecoverablePageFault(0xbadf00d000, spec.errCode, &frame, &regs, nil)
 		if got := readTTY(fb); !strings.Contains(got, spec.expReason) {
 			t.Errorf("[spec %d] expected reason %q; got output:\n%q", specIndex, spec.expReason, got)
 			continue
