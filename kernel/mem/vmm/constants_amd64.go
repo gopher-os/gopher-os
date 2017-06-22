@@ -80,6 +80,10 @@ const (
 	// for this page when the swapping page tables by updating the CR3 register.
 	FlagGlobal
 
+	// FlagCopyOnWrite is used to implement copy-on-write functionality. This
+	// flag and FlagRW are mutually exclusive.
+	FlagCopyOnWrite = 1 << 9
+
 	// FlagNoExecute if set, indicates that a page contains non-executable code.
 	FlagNoExecute = 1 << 63
 )

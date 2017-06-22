@@ -27,3 +27,23 @@ func Memset(addr uintptr, value byte, size Size) {
 		copy(target[index:], target[:index])
 	}
 }
+
+// Memcopy copies size bytes from src to dst.
+func Memcopy(src, dst uintptr, size Size) {
+	if size == 0 {
+		return
+	}
+
+	srcSlice := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(size),
+		Cap:  int(size),
+		Data: src,
+	}))
+	dstSlice := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(size),
+		Cap:  int(size),
+		Data: dst,
+	}))
+
+	copy(dstSlice, srcSlice)
+}
