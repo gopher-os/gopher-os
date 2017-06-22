@@ -37,7 +37,7 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 		if pteLevel == pageLevels-1 {
 			*pte = 0
 			pte.SetFrame(frame)
-			pte.SetFlags(FlagPresent | flags)
+			pte.SetFlags(flags)
 			flushTLBEntryFn(page.Address())
 			return true
 		}
@@ -77,7 +77,7 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 // mapping mechanism is primarily used by the kernel to access and initialize
 // inactive page tables.
 func MapTemporary(frame pmm.Frame) (Page, *kernel.Error) {
-	if err := Map(PageFromAddress(tempMappingAddr), frame, FlagRW); err != nil {
+	if err := Map(PageFromAddress(tempMappingAddr), frame, FlagPresent|FlagRW); err != nil {
 		return 0, err
 	}
 
