@@ -144,6 +144,24 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 			t.Fatalf("got unexpected error %v", err)
 		}
 	})
+
+	t.Run("map BlankReservedFrame RW", func(t *testing.T) {
+		defer func() { protectReservedZeroedPage = false }()
+
+		protectReservedZeroedPage = true
+		if err := Map(Page(0), ReservedZeroedFrame, FlagRW); err != errAttemptToRWMapReservedFrame {
+			t.Fatalf("expected errAttemptToRWMapReservedFrame; got: %v", err)
+		}
+	})
+
+	t.Run("temp-map BlankReservedFrame RW", func(t *testing.T) {
+		defer func() { protectReservedZeroedPage = false }()
+
+		protectReservedZeroedPage = true
+		if _, err := MapTemporary(ReservedZeroedFrame); err != errAttemptToRWMapReservedFrame {
+			t.Fatalf("expected errAttemptToRWMapReservedFrame; got: %v", err)
+		}
+	})
 }
 
 func TestUnmapAmd64(t *testing.T) {

@@ -120,11 +120,35 @@ func generalProtectionFaultHandler(_ uint64, frame *irq.Frame, regs *irq.Regs) {
 	panicFn(nil)
 }
 
+// reserveZeroedFrame reserves a physical frame to be used together with
+// FlagCopyOnWrite for lazy allocation requests.
+func reserveZeroedFrame() *kernel.Error {
+	var (
+		err      *kernel.Error
+		tempPage Page
+	)
+
+	if ReservedZeroedFrame, err = frameAllocator(); err != nil {
+		return err
+	} else if tempPage, err = mapTemporaryFn(ReservedZeroedFrame); err != nil {
+		return err
+	}
+	mem.Memset(tempPage.Address(), 0, mem.PageSize)
+	unmapFn(tempPage)
+
+	// From this point on, ReservedZeroedFrame cannot be mapped with a RW flag
+	protectReservedZeroedPage = true
+	return nil
+}
+
 // Init initializes the vmm system and installs paging-related exception
 // handlers.
 func Init() *kernel.Error {
+	if err := reserveZeroedFrame(); err != nil {
+		return err
+	}
+
 	handleExceptionWithCodeFn(irq.PageFaultException, pageFaultHandler)
 	handleExceptionWithCodeFn(irq.GPFException, generalProtectionFaultHandler)
-
 	return nil
 }

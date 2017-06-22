@@ -213,14 +213,69 @@ func TestGPtHandler(t *testing.T) {
 
 func TestInit(t *testing.T) {
 	defer func() {
+		frameAllocator = nil
+		mapTemporaryFn = MapTemporary
+		unmapFn = Unmap
 		handleExceptionWithCodeFn = irq.HandleExceptionWithCode
 	}()
 
-	handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+	// reserve space for an allocated page
+	reservedPage := make([]byte, mem.PageSize)
 
-	if err := Init(); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("success", func(t *testing.T) {
+		// fill page with junk
+		for i := 0; i < len(reservedPage); i++ {
+			reservedPage[i] = byte(i % 256)
+		}
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		unmapFn = func(p Page) *kernel.Error { return nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+
+		if err := Init(); err != nil {
+			t.Fatal(err)
+		}
+
+		// reserved page should be zeroed
+		for i := 0; i < len(reservedPage); i++ {
+			if reservedPage[i] != 0 {
+				t.Errorf("expected reserved page to be zeroed; got byte %d at index %d", reservedPage[i], i)
+			}
+		}
+	})
+
+	t.Run("blank page allocation error", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) { return pmm.InvalidFrame, expErr })
+		unmapFn = func(p Page) *kernel.Error { return nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+
+		if err := Init(); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
+	t.Run("blank page mapping error", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "map failed"}
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		unmapFn = func(p Page) *kernel.Error { return nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), expErr }
+		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+
+		if err := Init(); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
 }
 
 func readTTY(fb []byte) string {

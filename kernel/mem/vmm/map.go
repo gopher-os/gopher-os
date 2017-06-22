@@ -9,7 +9,34 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
 )
 
+// ReservedZeroedFrame is a special zero-cleared frame allocated by the
+// vmm package's Init function. The purpose of this frame is to assist
+// in implementing on-demand memory allocation when mapping it in
+// conjunction with the CopyOnWrite flag. Here is an example of how it
+// can be used:
+//
+//  func ReserveOnDemand(start vmm.Page, pageCount int) *kernel.Error {
+//    var err *kernel.Error
+//    mapFlags := vmm.FlagPresent|vmm.FlagCopyOnWrite
+//    for page := start; pageCount > 0; pageCount, page = pageCount-1, page+1 {
+//       if err = vmm.Map(page, vmm.ReservedZeroedFrame, mapFlags); err != nil {
+//         return err
+//       }
+//    }
+//    return nil
+//  }
+//
+// In the above example, page mappings are set up for the requested number of
+// pages but no physical memory is reserved for their contents. A write to any
+// of the above pages will trigger a page-fault causing a new frame to be
+// allocated, cleared (the blank frame is copied to the new frame) and
+// installed in-place with RW permissions.
+var ReservedZeroedFrame pmm.Frame
+
 var (
+	// protectReservedZeroedPage is set to true to prevent mapping to
+	protectReservedZeroedPage bool
+
 	// nextAddrFn is used by used by tests to override the nextTableAddr
 	// calculations used by Map. When compiling the kernel this function
 	// will be automatically inlined.
@@ -21,14 +48,21 @@ var (
 	// which will cause a fault if called in user-mode.
 	flushTLBEntryFn = cpu.FlushTLBEntry
 
-	errNoHugePageSupport = &kernel.Error{Module: "vmm", Message: "huge pages are not supported"}
+	errNoHugePageSupport           = &kernel.Error{Module: "vmm", Message: "huge pages are not supported"}
+	errAttemptToRWMapReservedFrame = &kernel.Error{Module: "vmm", Message: "reserved blank frame cannot be mapped with a RW flag"}
 )
 
 // Map establishes a mapping between a virtual page and a physical memory frame
 // using the currently active page directory table. Calls to Map will use the
 // supplied physical frame allocator to initialize missing page tables at each
 // paging level supported by the MMU.
+//
+// Attempts to map ReservedZeroedFrame with a RW flag will result in an error.
 func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+	if protectReservedZeroedPage && frame == ReservedZeroedFrame && (flags&FlagRW) != 0 {
+		return errAttemptToRWMapReservedFrame
+	}
+
 	var err *kernel.Error
 
 	walk(page.Address(), func(pteLevel uint8, pte *pageTableEntry) bool {
@@ -76,7 +110,13 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 // to a fixed virtual address overwriting any previous mapping. The temporary
 // mapping mechanism is primarily used by the kernel to access and initialize
 // inactive page tables.
+//
+// Attempts to map ReservedZeroedFrame will result in an error.
 func MapTemporary(frame pmm.Frame) (Page, *kernel.Error) {
+	if protectReservedZeroedPage && frame == ReservedZeroedFrame {
+		return 0, errAttemptToRWMapReservedFrame
+	}
+
 	if err := Map(PageFromAddress(tempMappingAddr), frame, FlagPresent|FlagRW); err != nil {
 		return 0, err
 	}
