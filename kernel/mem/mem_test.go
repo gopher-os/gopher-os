@@ -25,3 +25,28 @@ func TestMemset(t *testing.T) {
 		}
 	}
 }
+
+func TestMemcopy(t *testing.T) {
+	// memcopy with a 0 size should be a no-op
+	Memcopy(uintptr(0), uintptr(0), 0)
+
+	var (
+		src = make([]byte, PageSize)
+		dst = make([]byte, PageSize)
+	)
+	for i := 0; i < len(src); i++ {
+		src[i] = byte(i % 256)
+	}
+
+	Memcopy(
+		uintptr(unsafe.Pointer(&src[0])),
+		uintptr(unsafe.Pointer(&dst[0])),
+		PageSize,
+	)
+
+	for i := 0; i < len(src); i++ {
+		if got := dst[i]; got != src[i] {
+			t.Errorf("value mismatch between src and dst at index %d", i)
+		}
+	}
+}
