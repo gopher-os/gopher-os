@@ -304,9 +304,9 @@ _rt0_enter_long_mode:
 	or eax, (1 << 8) | (1<<11)
 	wrmsr
 
-	; Finally enable paging
+	; Finally enable paging (bit 31) and user/kernel page write protection (bit 16)
 	mov eax, cr0
-	or eax, 1 << 31
+	or eax, (1 << 31) | (1<<16)
 	mov cr0, eax
 
 	; We are in 32-bit compatibility submode. We need to load a 64bit GDT 
