@@ -40,6 +40,7 @@ section .text
 ;------------------------------------------------------------------------------
 global _rt0_64_entry
 _rt0_64_entry:
+	call _rt0_install_redirect_trampolines
 	call _rt0_64_load_idt
 
 	; According to the x86_64 ABI, the fs:0 should point to the address of 
@@ -239,7 +240,6 @@ _rt0_64_gate_dispatcher_with_code:
 	add rsp, 16	  ; pop handler address and exception code off the stack before returning
 	iretq
 
-
 ;------------------------------------------------------------------------------
 ; This dispatcher is invoked by gate entries that do not use exception codes.
 ; It performs the following functions:
@@ -307,3 +307,69 @@ write_string:
 
 .done:
 	ret
+
+;------------------------------------------------------------------------------
+; Install redirect trampolines. This hack allows us to redirect calls to Go
+; runtime functions to the kernel's own implementation without the need to
+; export/globalize any symbols. This works by first setting up a redirect table
+; (populated by a post-link step) that contains the addresses of the symbol to
+; hook and the address where calls to that symbol should be redirected. 
+;
+; This function iterates the redirect table entries and for each entry it
+; sets up a trampoline to the dst symbol and overwrites the code in src with
+; the 14-byte long _rt0_redirect_trampoline code. 
+;
+; Note: this code modification is only possible because we are currently 
+; operating in supervisor mode with no memory protection enabled. Under normal
+; conditions the .text section should be flagged as read-only.
+;------------------------------------------------------------------------------
+_rt0_install_redirect_trampolines:
+	mov rax, _rt0_redirect_table
+	mov rdx, NUM_REDIRECTS
+
+_rt0_install_redirect_rampolines.next:
+	mov rdi, [rax]	 ; the symbol address to hook 
+	mov rbx, [rax+8] ; the symbol to redirect to
+
+	; setup trampoline target and copy it to the hooked symbol
+	mov rsi, _rt0_redirect_trampoline
+	mov qword [rsi+6], rbx
+	mov rcx, 14
+	rep movsb ; copy rcx bytes from rsi to rdi
+
+	add rax, 16 
+	dec rdx 
+	jnz _rt0_install_redirect_rampolines.next
+
+	ret
+
+;------------------------------------------------------------------------------
+; This trampoline exploits rip-relative addressing to allow a jump to a 
+; 64-bit address without the need to touch any registers. The generated 
+; code is equivalent to:
+;
+; jmp [rip+0]
+; dq abs_address_to_jump_to
+;------------------------------------------------------------------------------
+_rt0_redirect_trampoline:
+	db 0xff ; the first 6 bytes encode a "jmp [rip+0]" instruction
+	db 0x25 
+	dd 0x00   
+	dq 0x00 ; the absolute address to jump to
+
+;------------------------------------------------------------------------------
+; The redirect table is placed in a dedicated section allowing us to easily 
+; find its offset in the kernel image file. As the VMA addresses of the src
+; and target symbols for the redirect are now known in advance we just reserve 
+; enough space space for the src and dst addresses using the NUM_REDIRECTS
+; define which is calculated by the Makefile and passed to nasm.
+;------------------------------------------------------------------------------
+section .goredirectstbl
+
+_rt0_redirect_table:
+	%rep NUM_REDIRECTS
+	dq 0  ; src: address of the symbol we want to redirect 
+	dq 0  ; dst: address of the symbol where calls to src are redirected to
+	%endrep
+
+
