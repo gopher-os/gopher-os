@@ -38,6 +38,15 @@ SECTIONS {
 		*(COMMON)
 		*(.bss)
 	}
+
+	/* Go function redirection table. This table is used for hooking 
+	 * Go runtime function symbols so that calls to them are redirected to
+	 * functions provided by the kernel.
+	 */ 
+	.goredirectstbl ALIGN(4K): AT(ADDR(.goredirectstbl) - PAGE_OFFSET)
+	{
+		*(.goredirectstbl)
+	}
 	
 	_kernel_end = ALIGN(4K);
 }

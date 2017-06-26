@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 	"unsafe"
 
@@ -20,7 +21,7 @@ func TestPanic(t *testing.T) {
 		cpuHaltCalled = true
 	}
 
-	t.Run("with error", func(t *testing.T) {
+	t.Run("with *kernel.Error", func(t *testing.T) {
 		cpuHaltCalled = false
 		fb := mockTTY()
 		err := &Error{Module: "test", Message: "panic test"}
@@ -28,6 +29,42 @@ func TestPanic(t *testing.T) {
 		Panic(err)
 
 		exp := "\n-----------------------------------\n[test] unrecoverable error: panic test\n*** kernel panic: system halted ***\n-----------------------------------"
+
+		if got := readTTY(fb); got != exp {
+			t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)
+		}
+
+		if !cpuHaltCalled {
+			t.Fatal("expected cpu.Halt() to be called by Panic")
+		}
+	})
+
+	t.Run("with error", func(t *testing.T) {
+		cpuHaltCalled = false
+		fb := mockTTY()
+		err := errors.New("go error")
+
+		Panic(err)
+
+		exp := "\n-----------------------------------\n[rt] unrecoverable error: go error\n*** kernel panic: system halted ***\n-----------------------------------"
+
+		if got := readTTY(fb); got != exp {
+			t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)
+		}
+
+		if !cpuHaltCalled {
+			t.Fatal("expected cpu.Halt() to be called by Panic")
+		}
+	})
+
+	t.Run("with string", func(t *testing.T) {
+		cpuHaltCalled = false
+		fb := mockTTY()
+		err := "string error"
+
+		Panic(err)
+
+		exp := "\n-----------------------------------\n[rt] unrecoverable error: string error\n*** kernel panic: system halted ***\n-----------------------------------"
 
 		if got := readTTY(fb); got != exp {
 			t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)

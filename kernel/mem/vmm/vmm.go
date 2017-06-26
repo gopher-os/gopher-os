@@ -16,9 +16,10 @@ var (
 
 	// the following functions are mocked by tests and are automatically
 	// inlined by the compiler.
-	panicFn                   = kernel.Panic
 	handleExceptionWithCodeFn = irq.HandleExceptionWithCode
 	readCR2Fn                 = cpu.ReadCR2
+
+	errUnrecoverableFault = &kernel.Error{Module: "vmm", Message: "page/gpf fault"}
 )
 
 // FrameAllocatorFn is a function that can allocate physical frames.
@@ -78,7 +79,7 @@ func pageFaultHandler(errorCode uint64, frame *irq.Frame, regs *irq.Regs) {
 		}
 	}
 
-	nonRecoverablePageFault(faultAddress, errorCode, frame, regs, nil)
+	nonRecoverablePageFault(faultAddress, errorCode, frame, regs, errUnrecoverableFault)
 }
 
 func nonRecoverablePageFault(faultAddress uintptr, errorCode uint64, frame *irq.Frame, regs *irq.Regs, err *kernel.Error) {
@@ -107,7 +108,7 @@ func nonRecoverablePageFault(faultAddress uintptr, errorCode uint64, frame *irq.
 	frame.Print()
 
 	// TODO: Revisit this when user-mode tasks are implemented
-	panicFn(err)
+	panic(err)
 }
 
 func generalProtectionFaultHandler(_ uint64, frame *irq.Frame, regs *irq.Regs) {
@@ -117,7 +118,7 @@ func generalProtectionFaultHandler(_ uint64, frame *irq.Frame, regs *irq.Regs) {
 	frame.Print()
 
 	// TODO: Revisit this when user-mode tasks are implemented
-	panicFn(nil)
+	panic(errUnrecoverableFault)
 }
 
 // reserveZeroedFrame reserves a physical frame to be used together with

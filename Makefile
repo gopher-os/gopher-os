@@ -21,7 +21,7 @@ GOARCH := amd64
 GOROOT := $(shell $(GO) env GOROOT)
 
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
-AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/
+AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/ -dNUM_REDIRECTS=$(shell $(GO) run tools/redirects/redirects.go count)
 
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
@@ -31,8 +31,12 @@ asm_obj_files := $(patsubst arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/
 
 .PHONY: kernel iso clean binutils_version_check
 
-kernel: binutils_version_check $(kernel_target)
+kernel: binutils_version_check kernel_image
 
+kernel_image: $(kernel_target)
+	@echo "[tools:redirects] populating kernel image redirect table"
+	@$(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
+	
 $(kernel_target): $(asm_obj_files) linker_script go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
@@ -88,7 +92,7 @@ $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 
 iso: $(iso_target)
 
-$(iso_target): iso_prereq $(kernel_target)
+$(iso_target): iso_prereq kernel_image
 	@echo "[grub] building ISO kernel-$(ARCH).iso"
 
 	@mkdir -p $(BUILD_DIR)/isofiles/boot/grub

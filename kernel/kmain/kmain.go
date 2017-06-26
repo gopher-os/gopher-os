@@ -8,6 +8,10 @@ import (
 	"github.com/achilleasa/gopher-os/kernel/mem/vmm"
 )
 
+var (
+	errKmainReturned = &kernel.Error{Module: "kmain", Message: "Kmain returned"}
+)
+
 // Kmain is the only Go symbol that is visible (exported) from the rt0 initialization
 // code. This function is invoked by the rt0 assembly code after setting up the GDT
 // and setting up a a minimal g0 struct that allows Go code using the 4K stack
@@ -27,8 +31,12 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 
 	var err *kernel.Error
 	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
-		kernel.Panic(err)
+		panic(err)
 	} else if err = vmm.Init(); err != nil {
-		kernel.Panic(err)
+		panic(err)
 	}
+
+	// Use kernel.Panic instead of panic to prevent the compiler from
+	// treating kernel.Panic as dead-code and eliminating it.
+	kernel.Panic(errKmainReturned)
 }
