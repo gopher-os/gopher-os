@@ -20,6 +20,7 @@ GOOS := linux
 GOARCH := amd64
 GOROOT := $(shell $(GO) env GOROOT)
 
+GC_FLAGS ?=
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
 AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/ -dNUM_REDIRECTS=$(shell $(GO) run tools/redirects/redirects.go count)
 
@@ -36,7 +37,7 @@ kernel: binutils_version_check kernel_image
 kernel_image: $(kernel_target)
 	@echo "[tools:redirects] populating kernel image redirect table"
 	@$(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
-	
+
 $(kernel_target): $(asm_obj_files) linker_script go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
@@ -45,7 +46,7 @@ go.o:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[go] compiling go sources into a standalone .o file"
-	@GOARCH=$(GOARCH) GOOS=$(GOOS) $(GO) build -n 2>&1 | sed \
+	@GOARCH=$(GOARCH) GOOS=$(GOOS) $(GO) build -gcflags '$(GC_FLAGS)' -n 2>&1 | sed \
 	    -e "1s|^|set -e\n|" \
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
@@ -107,27 +108,30 @@ VAGRANT_SRC_FOLDER = /home/vagrant/workspace/src/github.com/achilleasa/gopher-os
 .PHONY: kernel iso vagrant-up vagrant-down vagrant-ssh run gdb clean
 
 kernel:
-	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make kernel'
+	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make GC_FLAGS="$(GC_FLAGS)" kernel'
 
 iso:
-	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make iso'
+	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make GC_FLAGS="$(GC_FLAGS)" iso'
 
 endif
 
 run: iso
 	qemu-system-$(ARCH) -cdrom $(iso_target) -d int,cpu_reset -no-reboot
 
+# When building gdb target disable optimizations (-N) and inlining (l) of Go code
+gdb: GC_FLAGS += -N -l
 gdb: iso
 	qemu-system-$(ARCH) -M accel=tcg -s -S -cdrom $(iso_target) &
 	sleep 1
 	gdb \
 	    -ex 'add-auto-load-safe-path $(pwd)' \
 	    -ex 'set disassembly-flavor intel' \
-	    -ex 'layout asm' \
+	    -ex 'layout split' \
 	    -ex 'set arch i386:intel' \
 	    -ex 'file $(kernel_target)' \
 	    -ex 'target remote localhost:1234' \
-	    -ex 'set arch i386:x86-64:intel'
+	    -ex 'set arch i386:x86-64:intel' \
+	    -ex 'source $(GOROOT)/src/runtime/runtime-gdb.py'
 	@killall qemu-system-$(ARCH) || true
 
 clean:
