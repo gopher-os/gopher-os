@@ -31,3 +31,12 @@ TEXT ·ReadCR2(SB),NOSPLIT,$0
 	MOVQ CR2, AX
 	MOVQ AX, ret+0(FP)
 	RET
+
+TEXT ·ID(SB),NOSPLIT,$0
+	MOVQ leaf+0(FP), AX
+	CPUID
+	MOVL AX, ret+0(FP)
+	MOVL BX, ret+4(FP)
+	MOVL CX, ret+8(FP)
+	MOVL DX, ret+12(FP)
+	RET
