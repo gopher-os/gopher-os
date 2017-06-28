@@ -131,7 +131,8 @@ gdb: iso
 	    -ex 'file $(kernel_target)' \
 	    -ex 'target remote localhost:1234' \
 	    -ex 'set arch i386:x86-64:intel' \
-	    -ex 'source $(GOROOT)/src/runtime/runtime-gdb.py'
+	    -ex 'source $(GOROOT)/src/runtime/runtime-gdb.py' \
+	    -ex 'set substitute-path $(VAGRANT_SRC_FOLDER) $(shell pwd)'
 	@killall qemu-system-$(ARCH) || true
 
 clean:
