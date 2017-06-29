@@ -40,3 +40,41 @@ TEXT ·ID(SB),NOSPLIT,$0
 	MOVL CX, ret+8(FP)
 	MOVL DX, ret+12(FP)
 	RET
+
+TEXT ·PortWriteByte(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	MOVB val+0(FP), AX
+	BYTE $0xee // out al, dx
+	RET
+
+TEXT ·PortWriteWord(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	MOVW val+0(FP), AX
+	BYTE $0x66 
+	BYTE $0xef  // out ax, dx
+	RET
+
+TEXT ·PortWriteDword(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	MOVL val+0(FP), AX
+	BYTE $0xef  // out eax, dx
+	RET
+
+TEXT ·PortReadByte(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	BYTE $0xec  // in al, dx
+	MOVB AX, ret+0(FP)
+	RET
+
+TEXT ·PortReadWord(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	BYTE $0x66  
+	BYTE $0xed  // in ax, dx
+	MOVW AX, ret+0(FP)
+	RET
+
+TEXT ·PortReadDword(SB),NOSPLIT,$0
+	MOVW port+0(FP), DX
+	BYTE $0xed  // in eax, dx
+	MOVL AX, ret+0(FP)
+	RET
