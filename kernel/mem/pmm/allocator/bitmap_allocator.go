@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	// FrameAllocator is a BitmapAllocator instance that serves as the
+	// bitmapAllocator is a BitmapAllocator instance that serves as the
 	// primary allocator for reserving pages.
-	FrameAllocator BitmapAllocator
+	bitmapAllocator BitmapAllocator
 
 	errBitmapAllocOutOfMemory     = &kernel.Error{Module: "bitmap_alloc", Message: "out of memory"}
 	errBitmapAllocFrameNotManaged = &kernel.Error{Module: "bitmap_alloc", Message: "frame not managed by this allocator"}
@@ -306,10 +306,10 @@ func earlyAllocFrame() (pmm.Frame, *kernel.Error) {
 	return earlyAllocator.AllocFrame()
 }
 
-// sysAllocFrame is a helper that delegates a frame allocation request to the
+// AllocFrame is a helper that delegates a frame allocation request to the
 // bitmap allocator instance.
-func sysAllocFrame() (pmm.Frame, *kernel.Error) {
-	return FrameAllocator.AllocFrame()
+func AllocFrame() (pmm.Frame, *kernel.Error) {
+	return bitmapAllocator.AllocFrame()
 }
 
 // Init sets up the kernel physical memory allocation sub-system.
@@ -318,10 +318,10 @@ func Init(kernelStart, kernelEnd uintptr) *kernel.Error {
 	earlyAllocator.printMemoryMap()
 
 	vmm.SetFrameAllocator(earlyAllocFrame)
-	if err := FrameAllocator.init(); err != nil {
+	if err := bitmapAllocator.init(); err != nil {
 		return err
 	}
-	vmm.SetFrameAllocator(sysAllocFrame)
+	vmm.SetFrameAllocator(AllocFrame)
 
 	return nil
 }

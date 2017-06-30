@@ -2,6 +2,7 @@ package kmain
 
 import (
 	"github.com/achilleasa/gopher-os/kernel"
+	"github.com/achilleasa/gopher-os/kernel/goruntime"
 	"github.com/achilleasa/gopher-os/kernel/hal"
 	"github.com/achilleasa/gopher-os/kernel/hal/multiboot"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm/allocator"
@@ -33,6 +34,8 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
 		panic(err)
 	} else if err = vmm.Init(); err != nil {
+		panic(err)
+	} else if err = goruntime.Init(); err != nil {
 		panic(err)
 	}
 

@@ -23,8 +23,8 @@ func Panic(e interface{}) {
 	case *Error:
 		err = t
 	case string:
-		errRuntimePanic.Message = t
-		err = errRuntimePanic
+		panicString(t)
+		return
 	case error:
 		errRuntimePanic.Message = t.Error()
 		err = errRuntimePanic
@@ -38,4 +38,11 @@ func Panic(e interface{}) {
 	early.Printf("\n-----------------------------------\n")
 
 	cpuHaltFn()
+}
+
+// panicString serves as a redirect target for runtime.throw
+//go:redirect-from runtime.throw
+func panicString(msg string) {
+	errRuntimePanic.Message = msg
+	Panic(errRuntimePanic)
 }

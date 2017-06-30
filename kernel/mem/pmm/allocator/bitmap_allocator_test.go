@@ -413,7 +413,7 @@ func TestAllocatorPackageInit(t *testing.T) {
 		}
 
 		// At this point sysAllocFrame should work
-		if _, err := sysAllocFrame(); err != nil {
+		if _, err := AllocFrame(); err != nil {
 			t.Fatal(err)
 		}
 	})

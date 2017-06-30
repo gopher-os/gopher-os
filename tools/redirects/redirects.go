@@ -76,35 +76,33 @@ func findRedirects(goFiles []string) ([]*redirect, error) {
 
 		cmap := ast.NewCommentMap(fset, f, f.Comments)
 		cmap.Filter(f)
-		for astNode, commentGroups := range cmap {
+		for astNode := range cmap {
 			fnDecl, ok := astNode.(*ast.FuncDecl)
-			if !ok {
+			if !ok || fnDecl.Doc == nil {
 				continue
 			}
 
-			for _, commentGroup := range commentGroups {
-				for _, comment := range commentGroup.List {
-					if !strings.Contains(comment.Text, "go:redirect-from") {
-						continue
-					}
-
-					// build qualified name to fn
-					fqName := fmt.Sprintf("%s/%s.%s",
-						prefix,
-						goFile[:strings.LastIndexByte(goFile, '/')],
-						fnDecl.Name,
-					)
-
-					fields := strings.Fields(comment.Text)
-					if len(fields) != 2 || fields[0] != "//go:redirect-from" {
-						return nil, fmt.Errorf("malformed go:redirect-from syntax for %q", fqName)
-					}
-
-					redirects = append(redirects, &redirect{
-						src: fields[1],
-						dst: fqName,
-					})
+			for _, comment := range fnDecl.Doc.List {
+				if !strings.Contains(comment.Text, "go:redirect-from") {
+					continue
 				}
+
+				// build qualified name to fn
+				fqName := fmt.Sprintf("%s/%s.%s",
+					prefix,
+					goFile[:strings.LastIndexByte(goFile, '/')],
+					fnDecl.Name,
+				)
+
+				fields := strings.Fields(comment.Text)
+				if len(fields) != 2 || fields[0] != "//go:redirect-from" {
+					return nil, fmt.Errorf("malformed go:redirect-from syntax for %q\n-> %q", fqName, comment.Text)
+				}
+
+				redirects = append(redirects, &redirect{
+					src: fields[1],
+					dst: fqName,
+				})
 			}
 		}
 	}
