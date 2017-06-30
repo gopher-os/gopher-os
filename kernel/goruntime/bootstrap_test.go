@@ -7,6 +7,7 @@ import (
 	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm"
+	"github.com/achilleasa/gopher-os/kernel/mem/pmm/allocator"
 	"github.com/achilleasa/gopher-os/kernel/mem/vmm"
 )
 
@@ -128,5 +129,109 @@ func TestSysMap(t *testing.T) {
 		}()
 
 		sysMap(nil, 0, false, nil)
+	})
+}
+
+func TestSysAlloc(t *testing.T) {
+	defer func() {
+		earlyReserveRegionFn = vmm.EarlyReserveRegion
+		mapFn = vmm.Map
+		frameAllocFn = allocator.AllocFrame
+	}()
+
+	t.Run("success", func(t *testing.T) {
+		specs := []struct {
+			reqSize         mem.Size
+			expMapCallCount int
+		}{
+			// exact multiple of page size
+			{4 * mem.PageSize, 4},
+			// round up to nearest page size
+			{(4 * mem.PageSize) + 1, 5},
+		}
+
+		expRegionStartAddr := uintptr(10 * mem.PageSize)
+		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+			return expRegionStartAddr, nil
+		}
+
+		frameAllocFn = func() (pmm.Frame, *kernel.Error) {
+			return pmm.Frame(0), nil
+		}
+
+		for specIndex, spec := range specs {
+			var (
+				sysStat      uint64
+				mapCallCount int
+			)
+
+			mapFn = func(_ vmm.Page, _ pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
+				expFlags := vmm.FlagPresent | vmm.FlagNoExecute | vmm.FlagRW
+				if flags != expFlags {
+					t.Errorf("[spec %d] expected map flags to be %d; got %d", specIndex, expFlags, flags)
+				}
+				mapCallCount++
+				return nil
+			}
+
+			if got := sysAlloc(uintptr(spec.reqSize), &sysStat); uintptr(got) != expRegionStartAddr {
+				t.Errorf("[spec %d] expected sysAlloc to return address 0x%x; got 0x%x", specIndex, expRegionStartAddr, uintptr(got))
+			}
+
+			if mapCallCount != spec.expMapCallCount {
+				t.Errorf("[spec %d] expected vmm.Map call count to be %d; got %d", specIndex, spec.expMapCallCount, mapCallCount)
+			}
+
+			if exp := uint64(spec.expMapCallCount << mem.PageShift); sysStat != exp {
+				t.Errorf("[spec %d] expected stat counter to be %d; got %d", specIndex, exp, sysStat)
+			}
+		}
+	})
+
+	t.Run("earlyReserveRegion fails", func(t *testing.T) {
+		earlyReserveRegionFn = func(rsvSize mem.Size) (uintptr, *kernel.Error) {
+			return 0, &kernel.Error{Module: "test", Message: "consumed available address space"}
+		}
+
+		var sysStat uint64
+		if got := sysAlloc(1, &sysStat); got != unsafe.Pointer(uintptr(0)) {
+			t.Fatalf("expected sysAlloc to return 0x0 if EarlyReserveRegion returns an error; got 0x%x", uintptr(got))
+		}
+	})
+
+	t.Run("frame allocation fails", func(t *testing.T) {
+		expRegionStartAddr := uintptr(10 * mem.PageSize)
+		earlyReserveRegionFn = func(rsvSize mem.Size) (uintptr, *kernel.Error) {
+			return expRegionStartAddr, nil
+		}
+
+		frameAllocFn = func() (pmm.Frame, *kernel.Error) {
+			return pmm.InvalidFrame, &kernel.Error{Module: "test", Message: "out of memory"}
+		}
+
+		var sysStat uint64
+		if got := sysAlloc(1, &sysStat); got != unsafe.Pointer(uintptr(0)) {
+			t.Fatalf("expected sysAlloc to return 0x0 if AllocFrame returns an error; got 0x%x", uintptr(got))
+		}
+	})
+
+	t.Run("map fails", func(t *testing.T) {
+		expRegionStartAddr := uintptr(10 * mem.PageSize)
+		earlyReserveRegionFn = func(rsvSize mem.Size) (uintptr, *kernel.Error) {
+			return expRegionStartAddr, nil
+		}
+
+		frameAllocFn = func() (pmm.Frame, *kernel.Error) {
+			return pmm.Frame(0), nil
+		}
+
+		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error {
+			return &kernel.Error{Module: "test", Message: "map failed"}
+		}
+
+		var sysStat uint64
+		if got := sysAlloc(1, &sysStat); got != unsafe.Pointer(uintptr(0)) {
+			t.Fatalf("expected sysAlloc to return 0x0 if AllocFrame returns an error; got 0x%x", uintptr(got))
+		}
 	})
 }
