@@ -1,6 +1,7 @@
 package goruntime
 
 import (
+	"reflect"
 	"testing"
 	"unsafe"
 
@@ -236,11 +237,32 @@ func TestSysAlloc(t *testing.T) {
 	})
 }
 
+func TestGetRandomData(t *testing.T) {
+	sample1 := make([]byte, 128)
+	sample2 := make([]byte, 128)
+
+	getRandomData(sample1)
+	getRandomData(sample2)
+
+	if reflect.DeepEqual(sample1, sample2) {
+		t.Fatal("expected getRandomData to return different values for each invocation")
+	}
+}
+
 func TestInit(t *testing.T) {
 	defer func() {
 		mallocInitFn = mallocInit
+		algInitFn = algInit
+		modulesInitFn = modulesInit
+		typeLinksInitFn = typeLinksInit
+		itabsInitFn = itabsInit
 	}()
+
 	mallocInitFn = func() {}
+	algInitFn = func() {}
+	modulesInitFn = func() {}
+	typeLinksInitFn = func() {}
+	itabsInitFn = func() {}
 
 	if err := Init(); err != nil {
 		t.Fatal(t)
