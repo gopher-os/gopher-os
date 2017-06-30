@@ -235,3 +235,14 @@ func TestSysAlloc(t *testing.T) {
 		}
 	})
 }
+
+func TestInit(t *testing.T) {
+	defer func() {
+		mallocInitFn = mallocInit
+	}()
+	mallocInitFn = func() {}
+
+	if err := Init(); err != nil {
+		t.Fatal(t)
+	}
+}

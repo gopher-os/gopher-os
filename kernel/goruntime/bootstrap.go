@@ -5,6 +5,7 @@ package goruntime
 import (
 	"unsafe"
 
+	"github.com/achilleasa/gopher-os/kernel"
 	"github.com/achilleasa/gopher-os/kernel/mem"
 	"github.com/achilleasa/gopher-os/kernel/mem/pmm/allocator"
 	"github.com/achilleasa/gopher-os/kernel/mem/vmm"
@@ -14,7 +15,11 @@ var (
 	mapFn                = vmm.Map
 	earlyReserveRegionFn = vmm.EarlyReserveRegion
 	frameAllocFn         = allocator.AllocFrame
+	mallocInitFn         = mallocInit
 )
+
+//go:linkname mallocInit runtime.mallocinit
+func mallocInit()
 
 //go:linkname mSysStatInc runtime.mSysStatInc
 func mSysStatInc(*uint64, uintptr)
@@ -100,6 +105,30 @@ func sysAlloc(size uintptr, sysStat *uint64) unsafe.Pointer {
 	return unsafe.Pointer(regionStartAddr)
 }
 
+// nanotime returns a monotonically increasing clock value. This is a dummy
+// implementation and will be replaced when the timekeeper package is
+// implemented.
+//
+// This function replaces runtime.nanotime and is invoked by the Go allocator
+// when a span allocation is performed.
+//
+//go:redirect-from runtime.nanotime
+//go:nosplit
+func nanotime() uint64 {
+	// Use a dummy loop to prevent the compiler from inlining this function.
+	for i := 0; i < 100; i++ {
+	}
+	return 1
+}
+
+// Init enables support for various Go runtime features. After a call to init
+// the following runtime features become available for use:
+//  - heap memory allocation (new, make e.t.c)
+func Init() *kernel.Error {
+	mallocInitFn()
+	return nil
+}
+
 func init() {
 	// Dummy calls so the compiler does not optimize away the functions in
 	// this file.
@@ -112,4 +141,5 @@ func init() {
 	sysReserve(zeroPtr, 0, &reserved)
 	sysMap(zeroPtr, 0, reserved, &stat)
 	sysAlloc(0, &stat)
+	stat = nanotime()
 }
