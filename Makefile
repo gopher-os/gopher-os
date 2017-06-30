@@ -22,7 +22,7 @@ GOROOT := $(shell $(GO) env GOROOT)
 
 GC_FLAGS ?=
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
-AS_FLAGS := -g -f elf64 -F dwarf -I arch/$(ARCH)/asm/ -dNUM_REDIRECTS=$(shell $(GO) run tools/redirects/redirects.go count)
+AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I arch/$(ARCH)/asm/ -dNUM_REDIRECTS=$(shell $(GO) run tools/redirects/redirects.go count)
 
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
@@ -37,8 +37,8 @@ kernel: binutils_version_check kernel_image
 kernel_image: $(kernel_target)
 	@echo "[tools:redirects] populating kernel image redirect table"
 	@$(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
-
-$(kernel_target): $(asm_obj_files) linker_script go.o
+	
+$(kernel_target): asm_files linker_script go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
 
@@ -65,6 +65,9 @@ go.o:
 	@objcopy \
 		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kmain.Kmain$$" | cut -d' ' -f1` \
 		--globalize-symbol _rt0_interrupt_handlers \
+		--globalize-symbol runtime.g0 \
+		--globalize-symbol runtime.m0 \
+		--globalize-symbol runtime.physPageSize \
 		 $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
 
 binutils_version_check:
@@ -86,10 +89,18 @@ linker_script:
 		-E -x \
 		c arch/$(ARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
 
+$(BUILD_DIR)/go_asm_offsets.inc:
+	@mkdir -p $(BUILD_DIR)
+	
+	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
+	@$(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
+
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
 	@echo "[$(AS)] $<"
 	@$(AS) $(AS_FLAGS) $< -o $@
+
+asm_files: $(BUILD_DIR)/go_asm_offsets.inc $(asm_obj_files)
 
 iso: $(iso_target)
 
