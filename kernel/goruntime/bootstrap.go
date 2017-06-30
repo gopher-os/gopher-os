@@ -16,7 +16,26 @@ var (
 	earlyReserveRegionFn = vmm.EarlyReserveRegion
 	frameAllocFn         = allocator.AllocFrame
 	mallocInitFn         = mallocInit
+	algInitFn            = algInit
+	modulesInitFn        = modulesInit
+	typeLinksInitFn      = typeLinksInit
+	itabsInitFn          = itabsInit
+
+	// A seed for the pseudo-random number generator used by getRandomData
+	prngSeed = 0xdeadc0de
 )
+
+//go:linkname algInit runtime.alginit
+func algInit()
+
+//go:linkname modulesInit runtime.modulesinit
+func modulesInit()
+
+//go:linkname typeLinksInit runtime.typelinksinit
+func typeLinksInit()
+
+//go:linkname itabsInit runtime.itabsinit
+func itabsInit()
 
 //go:linkname mallocInit runtime.mallocinit
 func mallocInit()
@@ -121,11 +140,30 @@ func nanotime() uint64 {
 	return 1
 }
 
+// getRandomData populates the given slice with random data. The implementation
+// is the runtime package reads a random stream from /dev/random but since this
+// is not available, we use a prng instead.
+//
+//go:redirect-from runtime.getRandomData
+func getRandomData(r []byte) {
+	for i := 0; i < len(r); i++ {
+		prngSeed = (prngSeed * 58321) + 11113
+		r[i] = byte((prngSeed >> 16) & 255)
+	}
+}
+
 // Init enables support for various Go runtime features. After a call to init
 // the following runtime features become available for use:
 //  - heap memory allocation (new, make e.t.c)
+//  - map primitives
+//  - interfaces
 func Init() *kernel.Error {
 	mallocInitFn()
+	algInitFn()       // setup hash implementation for map keys
+	modulesInitFn()   // provides activeModules
+	typeLinksInitFn() // uses maps, activeModules
+	itabsInitFn()     // uses activeModules
+
 	return nil
 }
 
@@ -141,5 +179,6 @@ func init() {
 	sysReserve(zeroPtr, 0, &reserved)
 	sysMap(zeroPtr, 0, reserved, &stat)
 	sysAlloc(0, &stat)
+	getRandomData(nil)
 	stat = nanotime()
 }
