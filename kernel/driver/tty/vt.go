@@ -121,7 +121,6 @@ func (t *Vt) lf() {
 
 	t.cons.Scroll(console.Up, 1)
 	t.cons.Clear(0, t.height-1, t.width, 1)
-	return
 }
 
 func makeAttr(fg, bg console.Attr) console.Attr {
