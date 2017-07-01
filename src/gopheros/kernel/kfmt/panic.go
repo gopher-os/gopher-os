@@ -3,7 +3,6 @@ package kfmt
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/kfmt/early"
 )
 
 var (
@@ -31,12 +30,12 @@ func Panic(e interface{}) {
 		err = errRuntimePanic
 	}
 
-	early.Printf("\n-----------------------------------\n")
+	Printf("\n-----------------------------------\n")
 	if err != nil {
-		early.Printf("[%s] unrecoverable error: %s\n", err.Module, err.Message)
+		Printf("[%s] unrecoverable error: %s\n", err.Module, err.Message)
 	}
-	early.Printf("*** kernel panic: system halted ***")
-	early.Printf("\n-----------------------------------\n")
+	Printf("*** kernel panic: system halted ***")
+	Printf("\n-----------------------------------\n")
 
 	cpuHaltFn()
 }

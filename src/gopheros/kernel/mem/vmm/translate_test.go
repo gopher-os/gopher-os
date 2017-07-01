@@ -61,12 +61,3 @@ func TestTranslateAmd64(t *testing.T) {
 		}
 	}
 }
-
-/*
-	phys, err := vmm.Translate(uintptr(100 * mem.Mb))
-	if err != nil {
-		early.Printf("err: %s\n", err.Error())
-	} else {
-		early.Printf("phys: 0x%x\n", phys)
-	}
-*/

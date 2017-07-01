@@ -168,10 +168,10 @@ func TestPrintfToRingBuffer(t *testing.T) {
 	}()
 
 	exp := "hello world"
-	Fprintf(&buf, exp)
+	Printf(exp)
 
 	var buf bytes.Buffer
-	SetOutputSink(buf)
+	SetOutputSink(&buf)
 
 	if got := buf.String(); got != exp {
 		t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)

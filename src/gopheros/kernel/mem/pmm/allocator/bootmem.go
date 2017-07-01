@@ -3,7 +3,7 @@ package allocator
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/hal/multiboot"
-	"gopheros/kernel/kfmt/early"
+	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
 )
@@ -117,19 +117,19 @@ func (alloc *bootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
 // printMemoryMap scans the memory region information provided by the
 // bootloader and prints out the system's memory map.
 func (alloc *bootMemAllocator) printMemoryMap() {
-	early.Printf("[boot_mem_alloc] system memory map:\n")
+	kfmt.Printf("[boot_mem_alloc] system memory map:\n")
 	var totalFree mem.Size
 	multiboot.VisitMemRegions(func(region *multiboot.MemoryMapEntry) bool {
-		early.Printf("\t[0x%10x - 0x%10x], size: %10d, type: %s\n", region.PhysAddress, region.PhysAddress+region.Length, region.Length, region.Type.String())
+		kfmt.Printf("\t[0x%10x - 0x%10x], size: %10d, type: %s\n", region.PhysAddress, region.PhysAddress+region.Length, region.Length, region.Type.String())
 
 		if region.Type == multiboot.MemAvailable {
 			totalFree += mem.Size(region.Length)
 		}
 		return true
 	})
-	early.Printf("[boot_mem_alloc] available memory: %dKb\n", uint64(totalFree/mem.Kb))
-	early.Printf("[boot_mem_alloc] kernel loaded at 0x%x - 0x%x\n", alloc.kernelStartAddr, alloc.kernelEndAddr)
-	early.Printf("[boot_mem_alloc] size: %d bytes, reserved pages: %d\n",
+	kfmt.Printf("[boot_mem_alloc] available memory: %dKb\n", uint64(totalFree/mem.Kb))
+	kfmt.Printf("[boot_mem_alloc] kernel loaded at 0x%x - 0x%x\n", alloc.kernelStartAddr, alloc.kernelEndAddr)
+	kfmt.Printf("[boot_mem_alloc] size: %d bytes, reserved pages: %d\n",
 		uint64(alloc.kernelEndAddr-alloc.kernelStartAddr),
 		uint64(alloc.kernelEndFrame-alloc.kernelStartFrame+1),
 	)

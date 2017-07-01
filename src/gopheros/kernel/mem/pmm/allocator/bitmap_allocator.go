@@ -3,7 +3,7 @@ package allocator
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/hal/multiboot"
-	"gopheros/kernel/kfmt/early"
+	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
 	"gopheros/kernel/mem/vmm"
@@ -234,7 +234,7 @@ func (alloc *BitmapAllocator) reserveEarlyAllocatorFrames() {
 }
 
 func (alloc *BitmapAllocator) printStats() {
-	early.Printf(
+	kfmt.Printf(
 		"[bitmap_alloc] page stats: free: %d/%d (%d reserved)\n",
 		alloc.totalPages-alloc.reservedPages,
 		alloc.totalPages,

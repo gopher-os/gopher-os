@@ -1,8 +1,6 @@
 package allocator
 
 import (
-	"gopheros/kernel/driver/video/console"
-	"gopheros/kernel/hal"
 	"gopheros/kernel/hal/multiboot"
 	"testing"
 	"unsafe"
@@ -118,13 +116,3 @@ var (
 		24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 )
-
-func mockTTY() []byte {
-	// Mock a tty to handle early.Printf output
-	mockConsoleFb := make([]byte, 160*25)
-	mockConsole := &console.Ega{}
-	mockConsole.Init(80, 25, uintptr(unsafe.Pointer(&mockConsoleFb[0])))
-	hal.ActiveTerminal.AttachTo(mockConsole)
-
-	return mockConsoleFb
-}

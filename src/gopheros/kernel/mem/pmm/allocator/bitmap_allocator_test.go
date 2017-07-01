@@ -406,7 +406,6 @@ func TestAllocatorPackageInit(t *testing.T) {
 			return uintptr(unsafe.Pointer(&physMem[0])), nil
 		}
 
-		mockTTY()
 		if err := Init(0x100000, 0x1fa7c8); err != nil {
 			t.Fatal(err)
 		}
