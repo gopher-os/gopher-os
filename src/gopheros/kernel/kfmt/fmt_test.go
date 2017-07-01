@@ -1,30 +1,19 @@
-package early
+package kfmt
 
 import (
 	"bytes"
-	"gopheros/kernel/driver/tty"
-	"gopheros/kernel/driver/video/console"
-	"gopheros/kernel/hal"
+	"fmt"
+	"strings"
 	"testing"
-	"unsafe"
 )
 
 func TestPrintf(t *testing.T) {
-	origTerm := hal.ActiveTerminal
 	defer func() {
-		hal.ActiveTerminal = origTerm
+		outputSink = nil
 	}()
 
 	// mute vet warnings about malformed printf formatting strings
 	printfn := Printf
-
-	ega := &console.Ega{}
-	fb := make([]uint8, 160*25)
-	ega.Init(80, 25, uintptr(unsafe.Pointer(&fb[0])))
-
-	vt := &tty.Vt{}
-	vt.AttachTo(ega)
-	hal.ActiveTerminal = vt
 
 	specs := []struct {
 		fn        func()
@@ -124,6 +113,10 @@ func TestPrintf(t *testing.T) {
 			func() { printfn("int arg longer than padding: '%5x'", int(-0xbadf00d)) },
 			"int arg longer than padding: '-badf00d'",
 		},
+		{
+			func() { printfn("padding longer than maxBufSize '%128x'", int(-0xbadf00d)) },
+			fmt.Sprintf("padding longer than maxBufSize '-%sbadf00d'", strings.Repeat("0", maxBufSize-8)),
+		},
 		// multiple arguments
 		{
 			func() { printfn("%%%s%d%t", "foo", 123, true) },
@@ -156,25 +149,42 @@ func TestPrintf(t *testing.T) {
 		},
 	}
 
-	for specIndex, spec := range specs {
-		for index := 0; index < len(fb); index++ {
-			fb[index] = 0
-		}
-		vt.SetPosition(0, 0)
+	var buf bytes.Buffer
+	SetOutputSink(&buf)
 
+	for specIndex, spec := range specs {
+		buf.Reset()
 		spec.fn()
 
-		var buf bytes.Buffer
-		for index := 0; ; index += 2 {
-			if fb[index] == 0 {
-				break
-			}
-
-			buf.WriteByte(fb[index])
-		}
-
 		if got := buf.String(); got != spec.expOutput {
-			t.Errorf("[spec %d] expected to get %q; got %q", specIndex, spec.expOutput, got)
+			t.Errorf("[spec %d] expected to get\n%q\ngot:\n%q", specIndex, spec.expOutput, got)
 		}
+	}
+}
+
+func TestPrintfToRingBuffer(t *testing.T) {
+	defer func() {
+		outputSink = nil
+	}()
+
+	exp := "hello world"
+	Fprintf(&buf, exp)
+
+	var buf bytes.Buffer
+	SetOutputSink(buf)
+
+	if got := buf.String(); got != exp {
+		t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)
+	}
+}
+
+func TestFprintf(t *testing.T) {
+	var buf bytes.Buffer
+
+	exp := "hello world"
+	Fprintf(&buf, exp)
+
+	if got := buf.String(); got != exp {
+		t.Fatalf("expected to get:\n%q\ngot:\n%q", exp, got)
 	}
 }
