@@ -119,7 +119,7 @@ $(iso_target): iso_prereq kernel_image
 else
 VAGRANT_SRC_FOLDER = /home/vagrant/workspace
 
-.PHONY: kernel iso vagrant-up vagrant-down vagrant-ssh run gdb clean
+.PHONY: kernel iso vagrant-up vagrant-down vagrant-ssh run gdb clean lint lint-check-deps test collect-coverage
 
 kernel:
 	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make GC_FLAGS="$(GC_FLAGS)" kernel'
@@ -173,8 +173,12 @@ lint: lint-check-deps
 		./...
 
 lint-check-deps:
-	@$(GO) get -u gopkg.in/alecthomas/gometalinter.v1
+	@GOPATH=$(GOPATH) $(GO) get -u -t gopkg.in/alecthomas/gometalinter.v1
 	@gometalinter.v1 --install >/dev/null
 
 test:
-	$(GO) test -cover ./...
+	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
+
+collect-coverage:
+	GOPATH=$(GOPATH) sh coverage.sh
+
