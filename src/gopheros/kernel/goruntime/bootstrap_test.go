@@ -266,6 +266,7 @@ func TestInit(t *testing.T) {
 		modulesInitFn = modulesInit
 		typeLinksInitFn = typeLinksInit
 		itabsInitFn = itabsInit
+		initGoPackagesFn = initGoPackages
 	}()
 
 	mallocInitFn = func() {}
@@ -273,6 +274,7 @@ func TestInit(t *testing.T) {
 	modulesInitFn = func() {}
 	typeLinksInitFn = func() {}
 	itabsInitFn = func() {}
+	initGoPackagesFn = func() {}
 
 	if err := Init(); err != nil {
 		t.Fatal(t)
