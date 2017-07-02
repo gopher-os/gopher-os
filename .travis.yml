@@ -2,10 +2,8 @@ language: go
 sudo: required
 go:
   - 1.8
-before_install:
-  - go get -t -v ./...
 script:
   - make lint
-  - bash coverage.sh
+  - make collect-coverage
 after_success:
   - bash <(curl -s https://codecov.io/bash)

@@ -15,6 +15,8 @@ import (
 	"strings"
 )
 
+const pathToKernel = "src/gopheros/"
+
 type redirect struct {
 	src string
 	dst string
@@ -26,16 +28,6 @@ type redirect struct {
 func exit(err error) {
 	fmt.Fprintf(os.Stderr, "[redirects] error: %s\n", err.Error())
 	os.Exit(1)
-}
-
-func pkgPrefix() (string, error) {
-	goPath := os.Getenv("GOPATH") + "/src/"
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	return strings.TrimPrefix(cwd, goPath), nil
 }
 
 func collectGoFiles(root string) ([]string, error) {
@@ -61,11 +53,6 @@ func collectGoFiles(root string) ([]string, error) {
 func findRedirects(goFiles []string) ([]*redirect, error) {
 	var redirects []*redirect
 
-	prefix, err := pkgPrefix()
-	if err != nil {
-		return nil, err
-	}
-
 	for _, goFile := range goFiles {
 		fset := token.NewFileSet()
 
@@ -88,9 +75,8 @@ func findRedirects(goFiles []string) ([]*redirect, error) {
 				}
 
 				// build qualified name to fn
-				fqName := fmt.Sprintf("%s/%s.%s",
-					prefix,
-					goFile[:strings.LastIndexByte(goFile, '/')],
+				fqName := fmt.Sprintf("%s.%s",
+					goFile[strings.Index(goFile, "gopheros"):strings.LastIndexByte(goFile, '/')],
 					fnDecl.Name,
 				)
 
@@ -185,8 +171,8 @@ func elfResolveRedirectSymbols(redirects []*redirect, imgFile string) error {
 
 func main() {
 	flag.Parse()
-	if matches, _ := filepath.Glob("kernel/"); len(matches) != 1 {
-		exit(errors.New("this tool must be run from the kernel root folder"))
+	if matches, _ := filepath.Glob(pathToKernel); len(matches) != 1 {
+		exit(errors.New("this tool must be run from the gopher-os root folder"))
 	}
 
 	if len(flag.Args()) == 0 {
@@ -206,7 +192,7 @@ func main() {
 		exit(fmt.Errorf("unknown command %q", cmd))
 	}
 
-	goFiles, err := collectGoFiles("kernel/")
+	goFiles, err := collectGoFiles(pathToKernel)
 	if err != nil {
 		exit(err)
 	}

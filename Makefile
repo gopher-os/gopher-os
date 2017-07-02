@@ -9,6 +9,7 @@ iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 # If your go is called something else set it on the commandline, like
 # this: make run GO=go1.8
 GO ?= go
+GOPATH := $(GOPATH):$(shell pwd)
 
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
@@ -22,13 +23,14 @@ GOROOT := $(shell $(GO) env GOROOT)
 
 GC_FLAGS ?=
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
-AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I arch/$(ARCH)/asm/ -dNUM_REDIRECTS=$(shell $(GO) run tools/redirects/redirects.go count)
+AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I src/arch/$(ARCH)/asm/ \
+	    -dNUM_REDIRECTS=$(shell GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go count)
 
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
 
-asm_src_files := $(wildcard arch/$(ARCH)/asm/*.s)
-asm_obj_files := $(patsubst arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/%.o, $(asm_src_files))
+asm_src_files := $(wildcard src/arch/$(ARCH)/asm/*.s)
+asm_obj_files := $(patsubst src/arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/%.o, $(asm_src_files))
 
 .PHONY: kernel iso clean binutils_version_check
 
@@ -36,8 +38,8 @@ kernel: binutils_version_check kernel_image
 
 kernel_image: $(kernel_target)
 	@echo "[tools:redirects] populating kernel image redirect table"
-	@$(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
-	
+	@GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
+
 $(kernel_target): asm_files linker_script go.o
 	@echo "[$(LD)] linking kernel-$(ARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
@@ -46,7 +48,7 @@ go.o:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[go] compiling go sources into a standalone .o file"
-	@GOARCH=$(GOARCH) GOOS=$(GOOS) $(GO) build -gcflags '$(GC_FLAGS)' -n 2>&1 | sed \
+	@GOARCH=$(GOARCH) GOOS=$(GOOS) GOPATH=$(GOPATH) $(GO) build -gcflags '$(GC_FLAGS)' -n gopheros 2>&1 | sed \
 	    -e "1s|^|set -e\n|" \
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
@@ -61,7 +63,8 @@ go.o:
 	@# asm entrypoint code needs to know the address to 'main.main' so we use
 	@# objcopy to make that symbol exportable. Since nasm does not support externs
 	@# with slashes we create a global symbol alias for kernel.Kmain
-	@echo "[objcopy] creating global symbol alias 'kernel.Kmain' for 'github.com/achilleasa/gopher-os/kernel.Kmain' in go.o"
+	@echo "[objcopy] create kernel.Kmain alias to gopheros/kernel/kmain.Kmain"
+	@echo "[objcopy] globalizing symbols {_rt0_interrupt_handlers, runtime.g0/m0/physPageSize}"
 	@objcopy \
 		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kmain.Kmain$$" | cut -d' ' -f1` \
 		--globalize-symbol _rt0_interrupt_handlers \
@@ -85,17 +88,17 @@ grub-pc-bin_check:
 linker_script:
 	@echo "[sed] extracting LMA and VMA from constants.inc"
 	@echo "[gcc] pre-processing arch/$(ARCH)/script/linker.ld.in"
-	@gcc `cat arch/$(ARCH)/asm/constants.inc | sed -e "/^$$/d; /^;/d; s/^/-D/g; s/\s*equ\s*/=/g;" | tr '\n' ' '` \
+	@gcc `cat src/arch/$(ARCH)/asm/constants.inc | sed -e "/^$$/d; /^;/d; s/^/-D/g; s/\s*equ\s*/=/g;" | tr '\n' ' '` \
 		-E -x \
-		c arch/$(ARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
+		c src/arch/$(ARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
 
 $(BUILD_DIR)/go_asm_offsets.inc:
 	@mkdir -p $(BUILD_DIR)
-	
-	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
-	@$(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
 
-$(BUILD_DIR)/arch/$(ARCH)/asm/%.o: arch/$(ARCH)/asm/%.s
+	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
+	@GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
+
+$(BUILD_DIR)/arch/$(ARCH)/asm/%.o: src/arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
 	@echo "[$(AS)] $<"
 	@$(AS) $(AS_FLAGS) $< -o $@
@@ -109,14 +112,14 @@ $(iso_target): iso_prereq kernel_image
 
 	@mkdir -p $(BUILD_DIR)/isofiles/boot/grub
 	@cp $(kernel_target) $(BUILD_DIR)/isofiles/boot/kernel.bin
-	@cp arch/$(ARCH)/script/grub.cfg $(BUILD_DIR)/isofiles/boot/grub
+	@cp src/arch/$(ARCH)/script/grub.cfg $(BUILD_DIR)/isofiles/boot/grub
 	@grub-mkrescue -o $(iso_target) $(BUILD_DIR)/isofiles 2>&1 | sed -e "s/^/  | /g"
 	@rm -r $(BUILD_DIR)/isofiles
 
 else
-VAGRANT_SRC_FOLDER = /home/vagrant/workspace/src/github.com/achilleasa/gopher-os
+VAGRANT_SRC_FOLDER = /home/vagrant/workspace
 
-.PHONY: kernel iso vagrant-up vagrant-down vagrant-ssh run gdb clean
+.PHONY: kernel iso vagrant-up vagrant-down vagrant-ssh run gdb clean lint lint-check-deps test collect-coverage
 
 kernel:
 	vagrant ssh -c 'cd $(VAGRANT_SRC_FOLDER); make GC_FLAGS="$(GC_FLAGS)" kernel'
@@ -170,8 +173,12 @@ lint: lint-check-deps
 		./...
 
 lint-check-deps:
-	@$(GO) get -u gopkg.in/alecthomas/gometalinter.v1
+	@GOPATH=$(GOPATH) $(GO) get -u -t gopkg.in/alecthomas/gometalinter.v1
 	@gometalinter.v1 --install >/dev/null
 
 test:
-	$(GO) test -cover ./...
+	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
+
+collect-coverage:
+	GOPATH=$(GOPATH) sh coverage.sh
+
