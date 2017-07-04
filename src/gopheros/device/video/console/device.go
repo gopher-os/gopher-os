@@ -7,8 +7,8 @@ type ScrollDir uint8
 
 // The supported list of scroll directions for the console Scroll() calls.
 const (
-	Up ScrollDir = iota
-	Down
+	ScrollDirUp ScrollDir = iota
+	ScrollDirDown
 )
 
 // The Device interface is implemented by objects that can function as system
