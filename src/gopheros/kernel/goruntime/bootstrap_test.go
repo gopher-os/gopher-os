@@ -136,6 +136,7 @@ func TestSysAlloc(t *testing.T) {
 	defer func() {
 		earlyReserveRegionFn = vmm.EarlyReserveRegion
 		mapFn = vmm.Map
+		memsetFn = mem.Memset
 		frameAllocFn = allocator.AllocFrame
 	}()
 
@@ -161,9 +162,14 @@ func TestSysAlloc(t *testing.T) {
 
 		for specIndex, spec := range specs {
 			var (
-				sysStat      uint64
-				mapCallCount int
+				sysStat         uint64
+				mapCallCount    int
+				memsetCallCount int
 			)
+
+			memsetFn = func(_ uintptr, _ byte, _ mem.Size) {
+				memsetCallCount++
+			}
 
 			mapFn = func(_ vmm.Page, _ pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
 				expFlags := vmm.FlagPresent | vmm.FlagNoExecute | vmm.FlagRW
@@ -180,6 +186,11 @@ func TestSysAlloc(t *testing.T) {
 
 			if mapCallCount != spec.expMapCallCount {
 				t.Errorf("[spec %d] expected vmm.Map call count to be %d; got %d", specIndex, spec.expMapCallCount, mapCallCount)
+			}
+
+			// sysAlloc should perform the same number of memset calls as map calls
+			if memsetCallCount != spec.expMapCallCount {
+				t.Errorf("[spec %d] expected mem.Memset call count to be %d; got %d", specIndex, spec.expMapCallCount, memsetCallCount)
 			}
 
 			if exp := uint64(spec.expMapCallCount << mem.PageShift); sysStat != exp {

@@ -13,12 +13,14 @@ import (
 var (
 	mapFn                = vmm.Map
 	earlyReserveRegionFn = vmm.EarlyReserveRegion
+	memsetFn             = mem.Memset
 	frameAllocFn         = allocator.AllocFrame
 	mallocInitFn         = mallocInit
 	algInitFn            = algInit
 	modulesInitFn        = modulesInit
 	typeLinksInitFn      = typeLinksInit
 	itabsInitFn          = itabsInit
+	initGoPackagesFn     = initGoPackages
 
 	// A seed for the pseudo-random number generator used by getRandomData
 	prngSeed = 0xdeadc0de
@@ -41,6 +43,13 @@ func mallocInit()
 
 //go:linkname mSysStatInc runtime.mSysStatInc
 func mSysStatInc(*uint64, uintptr)
+
+// initGoPackages is an alias to main.init which recursively calls the init()
+// methods in all imported packages. Unless this function is called, things like
+// package errors will not be properly initialized causing various problems when
+// we try to use the stdlib.
+//go:linkname initGoPackages main.init
+func initGoPackages()
 
 // sysReserve reserves address space without allocating any memory or
 // establishing any page mappings.
@@ -117,6 +126,8 @@ func sysAlloc(size uintptr, sysStat *uint64) unsafe.Pointer {
 		if err = mapFn(page, frame, mapFlags); err != nil {
 			return unsafe.Pointer(uintptr(0))
 		}
+
+		memsetFn(page.Address(), 0, mem.PageSize)
 	}
 
 	mSysStatInc(sysStat, uintptr(regionSize))
@@ -162,6 +173,8 @@ func Init() *kernel.Error {
 	modulesInitFn()   // provides activeModules
 	typeLinksInitFn() // uses maps, activeModules
 	itabsInitFn()     // uses activeModules
+
+	initGoPackagesFn()
 
 	return nil
 }
