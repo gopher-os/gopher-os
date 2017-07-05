@@ -43,20 +43,20 @@ TEXT ·ID(SB),NOSPLIT,$0
 
 TEXT ·PortWriteByte(SB),NOSPLIT,$0
 	MOVW port+0(FP), DX
-	MOVB val+0(FP), AX
+	MOVB val+2(FP), AX
 	BYTE $0xee // out al, dx
 	RET
 
 TEXT ·PortWriteWord(SB),NOSPLIT,$0
 	MOVW port+0(FP), DX
-	MOVW val+0(FP), AX
+	MOVW val+2(FP), AX
 	BYTE $0x66 
 	BYTE $0xef  // out ax, dx
 	RET
 
 TEXT ·PortWriteDword(SB),NOSPLIT,$0
 	MOVW port+0(FP), DX
-	MOVL val+0(FP), AX
+	MOVL val+2(FP), AX
 	BYTE $0xef  // out eax, dx
 	RET
 
