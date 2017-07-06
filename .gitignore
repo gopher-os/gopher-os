@@ -10,6 +10,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# pkg folder when using pwd as a Go workspace
+pkg/
+
 # build folders and vagrant data dir
 build/
 .vagrant
