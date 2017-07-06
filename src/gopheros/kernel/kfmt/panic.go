@@ -1,6 +1,7 @@
-package kernel
+package kfmt
 
 import (
+	"gopheros/kernel"
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/kfmt/early"
 )
@@ -9,7 +10,7 @@ var (
 	// cpuHaltFn is mocked by tests and is automatically inlined by the compiler.
 	cpuHaltFn = cpu.Halt
 
-	errRuntimePanic = &Error{Module: "rt", Message: "unknown cause"}
+	errRuntimePanic = &kernel.Error{Module: "rt", Message: "unknown cause"}
 )
 
 // Panic outputs the supplied error (if not nil) to the console and halts the
@@ -17,10 +18,10 @@ var (
 // for calls to panic() (resolved via runtime.gopanic)
 //go:redirect-from runtime.gopanic
 func Panic(e interface{}) {
-	var err *Error
+	var err *kernel.Error
 
 	switch t := e.(type) {
-	case *Error:
+	case *kernel.Error:
 		err = t
 	case string:
 		panicString(t)

@@ -1,8 +1,9 @@
-package kernel
+package kfmt
 
 import (
 	"bytes"
 	"errors"
+	"gopheros/kernel"
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/driver/video/console"
 	"gopheros/kernel/hal"
@@ -23,7 +24,7 @@ func TestPanic(t *testing.T) {
 	t.Run("with *kernel.Error", func(t *testing.T) {
 		cpuHaltCalled = false
 		fb := mockTTY()
-		err := &Error{Module: "test", Message: "panic test"}
+		err := &kernel.Error{Module: "test", Message: "panic test"}
 
 		Panic(err)
 
