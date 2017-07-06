@@ -3,7 +3,9 @@ package console
 import (
 	"gopheros/device"
 	"gopheros/kernel/cpu"
+	"gopheros/kernel/hal/multiboot"
 	"image/color"
+	"reflect"
 	"testing"
 	"unsafe"
 )
@@ -316,5 +318,41 @@ func TestVgaTextDriverInterface(t *testing.T) {
 
 	if major, minor, patch := dev.DriverVersion(); major+minor+patch == 0 {
 		t.Fatal("DriverVersion() returned an invalid version number")
+	}
+}
+
+func TestVgaTextProbe(t *testing.T) {
+	defer func() {
+		getFramebufferInfoFn = multiboot.GetFramebufferInfo
+	}()
+
+	var (
+		expProbePtr = reflect.ValueOf(probeForVgaTextConsole).Pointer()
+		foundProbe  bool
+	)
+
+	for _, probeFn := range HWProbes() {
+		if reflect.ValueOf(probeFn).Pointer() == expProbePtr {
+			foundProbe = true
+			break
+		}
+	}
+
+	if !foundProbe {
+		t.Fatal("expected probeForVgaTextConsole to be part of the probes returned by HWProbes")
+	}
+
+	getFramebufferInfoFn = func() *multiboot.FramebufferInfo {
+		return &multiboot.FramebufferInfo{
+			Width:    80,
+			Height:   25,
+			Pitch:    160,
+			PhysAddr: 0xb80000,
+			Type:     multiboot.FramebufferTypeEGA,
+		}
+	}
+
+	if drv := probeForVgaTextConsole(); drv == nil {
+		t.Fatal("expected probeForVgaTextConsole to return a driver")
 	}
 }

@@ -13,3 +13,7 @@ type Driver interface {
 	// DriverInit initializes the device driver.
 	DriverInit() *kernel.Error
 }
+
+// ProbeFn is a function that scans for the presence of a particular
+// piece of hardware and returns a driver for it.
+type ProbeFn func() Driver

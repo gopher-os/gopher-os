@@ -1,6 +1,7 @@
 package tty
 
 import (
+	"gopheros/device"
 	"gopheros/device/video/console"
 	"gopheros/kernel"
 	"io"
@@ -258,3 +259,7 @@ func (t *VT) DriverVersion() (uint16, uint16, uint16) {
 
 // DriverInit initializes this driver.
 func (t *VT) DriverInit() *kernel.Error { return nil }
+
+func probeForVT() device.Driver {
+	return NewVT(DefaultTabWidth, DefaultScrollback)
+}

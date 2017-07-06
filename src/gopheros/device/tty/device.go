@@ -5,6 +5,14 @@ import (
 	"io"
 )
 
+const (
+	// DefaultScrollback defines the terminal scrollback in lines.
+	DefaultScrollback = 80
+
+	// DefaultTabWidth defines the number of spaces that tabs expand to.
+	DefaultTabWidth = 4
+)
+
 // State defines the supported terminal state values.
 type State uint8
 
