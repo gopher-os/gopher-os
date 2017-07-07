@@ -20,9 +20,12 @@ _rt0_idt_desc:
 ; Allocates space for the IRQ handlers pointers registered by the IRQ package 
 _rt0_irq_handlers resq IDT_ENTRIES
 
-; The FS register is loaded with the address of r0_g_ptr. fs:0x00 should contain 
-; a pointer to the currently active g struct (in this case runtime.g0)
-r0_g_ptr:	  resq 1 
+; According to the "ELF handling for TLS" document section 3.4.6
+; (https://www.akkadia.org/drepper/tls.pdf) for the GNU variant for x86-64,
+; fs:0x00 contains a pointer to the TCB. Variables in the TLS are stored 
+; before the TCB and are accessed using negative offsets from the TCB address.
+r0_g_ptr:  resq 1 
+tcb_ptr:   resq 1 
 
 section .text 
 
@@ -96,18 +99,17 @@ _rt0_64_setup_go_runtime_structs:
 	; Store the address of g0 in r0_g_ptr 
 	mov rax, r0_g_ptr
 	mov qword [rax], rsi
-	
-	; According to the x86_64 ABI, the fs register should contain the
-	; address after the pointer to the pointer to the user-space thread
-	; structure. This allows the Go runtime to retrieve the address of 
-	; the currently active g structure by accessing fs:-0x8.
-	;
+
+	; According to the x86-64 ABI requirements fs:0x0 should point to the 
+	; TCB.
+	mov rax, tcb_ptr
+	mov qword [rax], rax
+
 	; Load 64-bit FS register address 
 	; eax -> lower 32 bits 
 	; edx -> upper 32 bits
 	mov ecx, 0xc0000100  ; fs_base
-	mov rsi, r0_g_ptr
-	add rsi, 8	     ; fs -> r0_g_ptr + 0x8
+	mov rsi, tcb_ptr
 	mov rax, rsi         ; lower 32 bits 
 	shr rsi, 32
 	mov rdx, rsi         ; high 32 bits
