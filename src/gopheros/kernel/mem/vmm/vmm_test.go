@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/driver/video/console"
-	"gopheros/kernel/hal"
 	"gopheros/kernel/irq"
+	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
 	"strings"
@@ -53,8 +52,6 @@ func TestRecoverablePageFault(t *testing.T) {
 		// Page is present with CoW flag set
 		{FlagPresent | FlagCopyOnWrite, nil, nil, false},
 	}
-
-	mockTTY()
 
 	ptePtrFn = func(entry uintptr) unsafe.Pointer { return unsafe.Pointer(&pageEntry) }
 	readCR2Fn = func() uint64 { return uint64(uintptr(unsafe.Pointer(&origPage[0]))) }
@@ -102,6 +99,10 @@ func TestRecoverablePageFault(t *testing.T) {
 }
 
 func TestNonRecoverablePageFault(t *testing.T) {
+	defer func() {
+		kfmt.SetOutputSink(nil)
+	}()
+
 	specs := []struct {
 		errCode   uint64
 		expReason string
@@ -143,19 +144,21 @@ func TestNonRecoverablePageFault(t *testing.T) {
 	var (
 		regs  irq.Regs
 		frame irq.Frame
+		buf   bytes.Buffer
 	)
 
+	kfmt.SetOutputSink(&buf)
 	for specIndex, spec := range specs {
 		t.Run(fmt.Sprint(specIndex), func(t *testing.T) {
+			buf.Reset()
 			defer func() {
 				if err := recover(); err != errUnrecoverableFault {
 					t.Errorf("expected a panic with errUnrecoverableFault; got %v", err)
 				}
 			}()
-			fb := mockTTY()
 
 			nonRecoverablePageFault(0xbadf00d000, spec.errCode, &frame, &regs, errUnrecoverableFault)
-			if got := readTTY(fb); !strings.Contains(got, spec.expReason) {
+			if got := buf.String(); !strings.Contains(got, spec.expReason) {
 				t.Errorf("expected reason %q; got output:\n%q", spec.expReason, got)
 			}
 		})
@@ -182,7 +185,6 @@ func TestGPtHandler(t *testing.T) {
 		}
 	}()
 
-	mockTTY()
 	generalProtectionFaultHandler(0, &frame, &regs)
 }
 
@@ -251,31 +253,4 @@ func TestInit(t *testing.T) {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 	})
-}
-
-func readTTY(fb []byte) string {
-	var buf bytes.Buffer
-	for i := 0; i < len(fb); i += 2 {
-		ch := fb[i]
-		if ch == 0 {
-			if i+2 < len(fb) && fb[i+2] != 0 {
-				buf.WriteByte('\n')
-			}
-			continue
-		}
-
-		buf.WriteByte(ch)
-	}
-
-	return buf.String()
-}
-
-func mockTTY() []byte {
-	// Mock a tty to handle early.Printf output
-	mockConsoleFb := make([]byte, 160*25)
-	mockConsole := &console.Ega{}
-	mockConsole.Init(80, 25, uintptr(unsafe.Pointer(&mockConsoleFb[0])))
-	hal.ActiveTerminal.AttachTo(mockConsole)
-
-	return mockConsoleFb
 }

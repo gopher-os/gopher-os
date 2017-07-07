@@ -5,6 +5,7 @@ import (
 	"gopheros/kernel/goruntime"
 	"gopheros/kernel/hal"
 	"gopheros/kernel/hal/multiboot"
+	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem/pmm/allocator"
 	"gopheros/kernel/mem/vmm"
 )
@@ -27,9 +28,6 @@ var (
 func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 	multiboot.SetInfoPtr(multibootInfoPtr)
 
-	hal.InitTerminal()
-	hal.ActiveTerminal.Clear()
-
 	var err *kernel.Error
 	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
 		panic(err)
@@ -39,7 +37,10 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
 		panic(err)
 	}
 
-	// Use kernel.Panic instead of panic to prevent the compiler from
+	// Detect and initialize hardware
+	hal.DetectHardware()
+
+	// Use kfmt.Panic instead of panic to prevent the compiler from
 	// treating kernel.Panic as dead-code and eliminating it.
-	kernel.Panic(errKmainReturned)
+	kfmt.Panic(errKmainReturned)
 }

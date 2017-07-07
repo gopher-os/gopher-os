@@ -4,7 +4,7 @@ import (
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/irq"
-	"gopheros/kernel/kfmt/early"
+	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
 )
@@ -83,27 +83,27 @@ func pageFaultHandler(errorCode uint64, frame *irq.Frame, regs *irq.Regs) {
 }
 
 func nonRecoverablePageFault(faultAddress uintptr, errorCode uint64, frame *irq.Frame, regs *irq.Regs, err *kernel.Error) {
-	early.Printf("\nPage fault while accessing address: 0x%16x\nReason: ", faultAddress)
+	kfmt.Printf("\nPage fault while accessing address: 0x%16x\nReason: ", faultAddress)
 	switch {
 	case errorCode == 0:
-		early.Printf("read from non-present page")
+		kfmt.Printf("read from non-present page")
 	case errorCode == 1:
-		early.Printf("page protection violation (read)")
+		kfmt.Printf("page protection violation (read)")
 	case errorCode == 2:
-		early.Printf("write to non-present page")
+		kfmt.Printf("write to non-present page")
 	case errorCode == 3:
-		early.Printf("page protection violation (write)")
+		kfmt.Printf("page protection violation (write)")
 	case errorCode == 4:
-		early.Printf("page-fault in user-mode")
+		kfmt.Printf("page-fault in user-mode")
 	case errorCode == 8:
-		early.Printf("page table has reserved bit set")
+		kfmt.Printf("page table has reserved bit set")
 	case errorCode == 16:
-		early.Printf("instruction fetch")
+		kfmt.Printf("instruction fetch")
 	default:
-		early.Printf("unknown")
+		kfmt.Printf("unknown")
 	}
 
-	early.Printf("\n\nRegisters:\n")
+	kfmt.Printf("\n\nRegisters:\n")
 	regs.Print()
 	frame.Print()
 
@@ -112,8 +112,8 @@ func nonRecoverablePageFault(faultAddress uintptr, errorCode uint64, frame *irq.
 }
 
 func generalProtectionFaultHandler(_ uint64, frame *irq.Frame, regs *irq.Regs) {
-	early.Printf("\nGeneral protection fault while accessing address: 0x%x\n", readCR2Fn())
-	early.Printf("Registers:\n")
+	kfmt.Printf("\nGeneral protection fault while accessing address: 0x%x\n", readCR2Fn())
+	kfmt.Printf("Registers:\n")
 	regs.Print()
 	frame.Print()
 
