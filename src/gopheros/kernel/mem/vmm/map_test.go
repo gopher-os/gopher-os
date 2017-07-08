@@ -97,6 +97,73 @@ func TestMapTemporaryAmd64(t *testing.T) {
 	}
 }
 
+func TestMapRegion(t *testing.T) {
+	defer func() {
+		mapFn = Map
+		earlyReserveRegionFn = EarlyReserveRegion
+	}()
+
+	t.Run("success", func(t *testing.T) {
+		mapCallCount := 0
+		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			mapCallCount++
+			return nil
+		}
+
+		earlyReserveRegionCallCount := 0
+		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+			earlyReserveRegionCallCount++
+			return 0xf00, nil
+		}
+
+		if _, err := MapRegion(pmm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 2; mapCallCount != exp {
+			t.Errorf("expected Map to be called %d time(s); got %d", exp, mapCallCount)
+		}
+
+		if exp := 1; earlyReserveRegionCallCount != exp {
+			t.Errorf("expected EarlyReserveRegion to be called %d time(s); got %d", exp, earlyReserveRegionCallCount)
+		}
+	})
+
+	t.Run("EarlyReserveRegion fails", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "out of address space"}
+
+		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+			return 0, expErr
+		}
+
+		if _, err := MapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
+	t.Run("Map fails", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "map failed"}
+
+		earlyReserveRegionCallCount := 0
+		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+			earlyReserveRegionCallCount++
+			return 0xf00, nil
+		}
+
+		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			return expErr
+		}
+
+		if _, err := MapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+
+		if exp := 1; earlyReserveRegionCallCount != exp {
+			t.Errorf("expected EarlyReserveRegion to be called %d time(s); got %d", exp, earlyReserveRegionCallCount)
+		}
+	})
+}
+
 func TestMapTemporaryErrorsAmd64(t *testing.T) {
 	if runtime.GOARCH != "amd64" {
 		t.Skip("test requires amd64 runtime; skipping")

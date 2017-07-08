@@ -3,15 +3,16 @@ package console
 import (
 	"gopheros/device"
 	"gopheros/kernel"
-	"gopheros/kernel/cpu"
 	"gopheros/kernel/hal/multiboot"
+	"gopheros/kernel/kfmt"
+	"gopheros/kernel/mem"
+	"gopheros/kernel/mem/pmm"
+	"gopheros/kernel/mem/vmm"
 	"image/color"
 	"io"
 	"reflect"
 	"unsafe"
 )
-
-var portWriteByteFn = cpu.PortWriteByte
 
 // VgaTextConsole implements an EGA-compatible 80x25 text console using VGA
 // mode 0x3. The console supports the default 16 EGA colors which can be
@@ -28,7 +29,8 @@ type VgaTextConsole struct {
 	width  uint32
 	height uint32
 
-	fb []uint16
+	fbPhysAddr uintptr
+	fb         []uint16
 
 	palette   color.Palette
 	defaultFg uint8
@@ -40,15 +42,10 @@ type VgaTextConsole struct {
 // framebuffer mapped to fbPhysAddr.
 func NewVgaTextConsole(columns, rows uint32, fbPhysAddr uintptr) *VgaTextConsole {
 	return &VgaTextConsole{
-		width:     columns,
-		height:    rows,
-		clearChar: uint16(' '),
-		// overlay a 16bit slice over the fbPhysAddr
-		fb: *(*[]uint16)(unsafe.Pointer(&reflect.SliceHeader{
-			Len:  int(columns * rows),
-			Cap:  int(columns * rows),
-			Data: fbPhysAddr,
-		})),
+		width:      columns,
+		height:     rows,
+		fbPhysAddr: fbPhysAddr,
+		clearChar:  uint16(' '),
 		palette: color.Palette{
 			color.RGBA{R: 0, G: 0, B: 1},       /* black */
 			color.RGBA{R: 0, G: 0, B: 128},     /* blue */
@@ -198,7 +195,29 @@ func (cons *VgaTextConsole) DriverVersion() (uint16, uint16, uint16) {
 }
 
 // DriverInit initializes this driver.
-func (cons *VgaTextConsole) DriverInit(_ io.Writer) *kernel.Error { return nil }
+func (cons *VgaTextConsole) DriverInit(w io.Writer) *kernel.Error {
+	// Map the framebuffer so we can write to it
+	fbSize := mem.Size(cons.width * cons.height * 2)
+	fbPage, err := mapRegionFn(
+		pmm.Frame(cons.fbPhysAddr>>mem.PageShift),
+		fbSize,
+		vmm.FlagPresent|vmm.FlagRW,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	cons.fb = *(*[]uint16)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(fbSize >> 1),
+		Cap:  int(fbSize >> 1),
+		Data: fbPage.Address(),
+	}))
+
+	kfmt.Fprintf(w, "mapped framebuffer to 0x%x\n", fbPage.Address())
+
+	return nil
+}
 
 // probeForVgaTextConsole checks for the presence of a vga text console.
 func probeForVgaTextConsole() device.Driver {
