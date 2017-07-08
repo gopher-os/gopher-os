@@ -11,8 +11,8 @@ import (
 )
 
 func TestVgaTextDimensions(t *testing.T) {
-	cons := NewVgaTextConsole(80, 25, 0)
-	if w, h := cons.Dimensions(); w != 80 || h != 25 {
+	var cons Device = NewVgaTextConsole(40, 50, 0)
+	if w, h := cons.Dimensions(); w != 40 || h != 50 {
 		t.Fatalf("expected console dimensions to be 80x25; got %dx%d", w, h)
 	}
 }
@@ -27,34 +27,38 @@ func TestVgaTextDefaultColors(t *testing.T) {
 func TestVgaTextFill(t *testing.T) {
 	specs := []struct {
 		// Input rect
-		x, y, w, h uint16
+		x, y, w, h uint32
 
 		// Expected area to be cleared
-		expX, expY, expW, expH uint16
+		expStartX, expStartY, expEndX, expEndY uint32
 	}{
 		{
 			0, 0, 500, 500,
-			0, 0, 80, 25,
+			1, 1, 80, 25,
 		},
 		{
 			10, 10, 11, 50,
-			10, 10, 11, 15,
+			10, 10, 20, 25,
 		},
 		{
 			10, 10, 110, 1,
-			10, 10, 70, 1,
+			10, 10, 80, 10,
 		},
 		{
 			70, 20, 20, 20,
-			70, 20, 10, 5,
+			70, 20, 80, 39,
 		},
 		{
 			90, 25, 20, 20,
-			0, 0, 0, 0,
+			80, 25, 80, 25,
 		},
 		{
 			12, 12, 5, 6,
-			12, 12, 5, 6,
+			12, 12, 16, 17,
+		},
+		{
+			80, 25, 1, 1,
+			80, 25, 80, 25,
 		},
 	}
 
@@ -74,12 +78,12 @@ nextSpec:
 
 		cons.Fill(spec.x, spec.y, spec.w, spec.h, 0, 0)
 
-		var x, y uint16
+		var x, y uint32
 		for y = 1; y <= ch; y++ {
 			for x = 1; x <= cw; x++ {
 				fbVal := fb[((y-1)*cw)+(x-1)]
 
-				if x < spec.expX || y < spec.expY || x >= spec.expX+spec.expW || y >= spec.expY+spec.expH {
+				if x < spec.expStartX || y < spec.expStartY || x > spec.expEndX || y > spec.expEndY {
 					if fbVal != testPat {
 						t.Errorf("[spec %d] expected char at (%d, %d) not to be cleared", specIndex, x, y)
 						continue nextSpec
@@ -101,7 +105,7 @@ func TestVgaTextScroll(t *testing.T) {
 	cw, ch := cons.Dimensions()
 
 	t.Run("up", func(t *testing.T) {
-		specs := []uint16{
+		specs := []uint32{
 			0,
 			1,
 			2,
@@ -109,10 +113,10 @@ func TestVgaTextScroll(t *testing.T) {
 	nextSpec:
 		for specIndex, lines := range specs {
 			// Fill buffer with test pattern
-			var x, y, index uint16
+			var x, y, index uint32
 			for y = 0; y < ch; y++ {
 				for x = 0; x < cw; x++ {
-					fb[index] = (y << 8) | x
+					fb[index] = uint16((y << 8) | x)
 					index++
 				}
 			}
@@ -123,7 +127,7 @@ func TestVgaTextScroll(t *testing.T) {
 			index = 0
 			for y = 0; y < ch-lines; y++ {
 				for x = 0; x < cw; x++ {
-					expVal := ((y + lines) << 8) | x
+					expVal := uint16(((y + lines) << 8) | x)
 					if fb[index] != expVal {
 						t.Errorf("[spec %d] expected value at (%d, %d) to be %d; got %d", specIndex, x, y, expVal, fb[index])
 						continue nextSpec
@@ -135,7 +139,7 @@ func TestVgaTextScroll(t *testing.T) {
 	})
 
 	t.Run("down", func(t *testing.T) {
-		specs := []uint16{
+		specs := []uint32{
 			0,
 			1,
 			2,
@@ -144,10 +148,10 @@ func TestVgaTextScroll(t *testing.T) {
 	nextSpec:
 		for specIndex, lines := range specs {
 			// Fill buffer with test pattern
-			var x, y, index uint16
+			var x, y, index uint32
 			for y = 0; y < ch; y++ {
 				for x = 0; x < cw; x++ {
-					fb[index] = (y << 8) | x
+					fb[index] = uint16((y << 8) | x)
 					index++
 				}
 			}
@@ -158,7 +162,7 @@ func TestVgaTextScroll(t *testing.T) {
 			index = lines * cw
 			for y = lines; y < ch-lines; y++ {
 				for x = 0; x < cw; x++ {
-					expVal := ((y - lines) << 8) | x
+					expVal := uint16(((y - lines) << 8) | x)
 					if fb[index] != expVal {
 						t.Errorf("[spec %d] expected value at (%d, %d) to be %d; got %d", specIndex, x, y, expVal, fb[index])
 						continue nextSpec
@@ -177,7 +181,7 @@ func TestVgaTextWrite(t *testing.T) {
 
 	t.Run("off-screen", func(t *testing.T) {
 		specs := []struct {
-			x, y uint16
+			x, y uint32
 		}{
 			{81, 26},
 			{90, 24},

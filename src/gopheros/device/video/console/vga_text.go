@@ -24,8 +24,8 @@ var portWriteByteFn = cpu.PortWriteByte
 //  - light gray text (color 7) on black background (color 0).
 //  - space as the clear character
 type VgaTextConsole struct {
-	width  uint16
-	height uint16
+	width  uint32
+	height uint32
 
 	fb []uint16
 
@@ -37,15 +37,15 @@ type VgaTextConsole struct {
 
 // NewVgaTextConsole creates an new vga text console with its
 // framebuffer mapped to fbPhysAddr.
-func NewVgaTextConsole(columns, rows uint16, fbPhysAddr uintptr) *VgaTextConsole {
+func NewVgaTextConsole(columns, rows uint32, fbPhysAddr uintptr) *VgaTextConsole {
 	return &VgaTextConsole{
 		width:     columns,
 		height:    rows,
 		clearChar: uint16(' '),
 		// overlay a 16bit slice over the fbPhysAddr
 		fb: *(*[]uint16)(unsafe.Pointer(&reflect.SliceHeader{
-			Len:  80 * 25,
-			Cap:  80 * 25,
+			Len:  int(columns * rows),
+			Cap:  int(columns * rows),
 			Data: fbPhysAddr,
 		})),
 		palette: color.Palette{
@@ -73,7 +73,7 @@ func NewVgaTextConsole(columns, rows uint16, fbPhysAddr uintptr) *VgaTextConsole
 }
 
 // Dimensions returns the console width and height in characters.
-func (cons *VgaTextConsole) Dimensions() (uint16, uint16) {
+func (cons *VgaTextConsole) Dimensions() (uint32, uint32) {
 	return cons.width, cons.height
 }
 
@@ -85,10 +85,10 @@ func (cons *VgaTextConsole) DefaultColors() (fg uint8, bg uint8) {
 
 // Fill sets the contents of the specified rectangular region to the requested
 // color. Both x and y coordinates are 1-based.
-func (cons *VgaTextConsole) Fill(x, y, width, height uint16, fg, bg uint8) {
+func (cons *VgaTextConsole) Fill(x, y, width, height uint32, fg, bg uint8) {
 	var (
 		clr                  = (((uint16(bg) << 4) | uint16(fg)) << 8) | cons.clearChar
-		rowOffset, colOffset uint16
+		rowOffset, colOffset uint32
 	)
 
 	// clip rectangle
@@ -104,12 +104,12 @@ func (cons *VgaTextConsole) Fill(x, y, width, height uint16, fg, bg uint8) {
 		y = cons.height
 	}
 
-	if x+width > cons.width {
-		width = cons.width - x
+	if x+width-1 > cons.width {
+		width = cons.width - x + 1
 	}
 
-	if y+height > cons.height {
-		height = cons.height - y
+	if y+height-1 > cons.height {
+		height = cons.height - y + 1
 	}
 
 	rowOffset = ((y - 1) * cons.width) + (x - 1)
@@ -123,12 +123,12 @@ func (cons *VgaTextConsole) Fill(x, y, width, height uint16, fg, bg uint8) {
 // Scroll the console contents to the specified direction. The caller
 // is responsible for updating (e.g. clear or replace) the contents of
 // the region that was scrolled.
-func (cons *VgaTextConsole) Scroll(dir ScrollDir, lines uint16) {
+func (cons *VgaTextConsole) Scroll(dir ScrollDir, lines uint32) {
 	if lines == 0 || lines > cons.height {
 		return
 	}
 
-	var i uint16
+	var i uint32
 	offset := lines * cons.width
 
 	switch dir {
@@ -146,7 +146,7 @@ func (cons *VgaTextConsole) Scroll(dir ScrollDir, lines uint16) {
 // Write a char to the specified location. If fg or bg exceed the supported
 // colors for this console, they will be set to their default value. Both x and
 // y coordinates are 1-based
-func (cons *VgaTextConsole) Write(ch byte, fg, bg uint8, x, y uint16) {
+func (cons *VgaTextConsole) Write(ch byte, fg, bg uint8, x, y uint32) {
 	if x < 1 || x > cons.width || y < 1 || y > cons.height {
 		return
 	}
@@ -205,7 +205,7 @@ func probeForVgaTextConsole() device.Driver {
 
 	fbInfo := getFramebufferInfoFn()
 	if fbInfo.Type == multiboot.FramebufferTypeEGA {
-		drv = NewVgaTextConsole(uint16(fbInfo.Width), uint16(fbInfo.Height), uintptr(fbInfo.PhysAddr))
+		drv = NewVgaTextConsole(fbInfo.Width, fbInfo.Height, uintptr(fbInfo.PhysAddr))
 	}
 
 	return drv
