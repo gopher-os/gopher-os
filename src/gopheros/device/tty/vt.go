@@ -17,14 +17,14 @@ type VT struct {
 	cons console.Device
 
 	// Terminal dimensions
-	termWidth      uint16
-	termHeight     uint16
-	viewportWidth  uint16
-	viewportHeight uint16
+	termWidth      uint32
+	termHeight     uint32
+	viewportWidth  uint32
+	viewportHeight uint32
 
 	// The number of additional lines of output that are buffered by the
 	// terminal to support scrolling up.
-	scrollback uint16
+	scrollback uint32
 
 	// The terminal contents. Each character occupies 3 bytes and uses the
 	// format: (ASCII char, fg, bg)
@@ -34,9 +34,9 @@ type VT struct {
 	tabWidth         uint8
 	defaultFg, curFg uint8
 	defaultBg, curBg uint8
-	cursorX          uint16
-	cursorY          uint16
-	viewportY        uint16
+	cursorX          uint32
+	cursorY          uint32
+	viewportY        uint32
 	dataOffset       uint
 	state            State
 }
@@ -45,7 +45,7 @@ type VT struct {
 // tab expansion whereas the scrollback parameter defines the line count that
 // gets buffered by the terminal to provide scrolling beyond the console
 // height.
-func NewVT(tabWidth uint8, scrollback uint16) *VT {
+func NewVT(tabWidth uint8, scrollback uint32) *VT {
 	return &VT{
 		tabWidth:   tabWidth,
 		scrollback: scrollback,
@@ -93,9 +93,9 @@ func (t *VT) SetState(newState State) {
 
 	// If the terminal became active, update the console with its contents
 	if t.state == StateActive && t.cons != nil {
-		for y := uint16(1); y <= t.viewportHeight; y++ {
+		for y := uint32(1); y <= t.viewportHeight; y++ {
 			offset := (y - 1 + t.viewportY) * (t.viewportWidth * 3)
-			for x := uint16(1); x <= t.viewportWidth; x, offset = x+1, offset+3 {
+			for x := uint32(1); x <= t.viewportWidth; x, offset = x+1, offset+3 {
 				t.cons.Write(t.data[offset], t.data[offset+1], t.data[offset+2], x, y)
 			}
 		}
@@ -103,12 +103,12 @@ func (t *VT) SetState(newState State) {
 }
 
 // CursorPosition returns the current cursor position.
-func (t *VT) CursorPosition() (uint16, uint16) {
+func (t *VT) CursorPosition() (uint32, uint32) {
 	return t.cursorX, t.cursorY
 }
 
 // SetCursorPosition sets the current cursor position to (x,y).
-func (t *VT) SetCursorPosition(x, y uint16) {
+func (t *VT) SetCursorPosition(x, y uint32) {
 	if t.cons == nil {
 		return
 	}

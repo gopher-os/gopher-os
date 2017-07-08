@@ -11,8 +11,8 @@ import (
 
 func TestVtPosition(t *testing.T) {
 	specs := []struct {
-		inX, inY   uint16
-		expX, expY uint16
+		inX, inY   uint32
+		expX, expY uint32
 	}{
 		{20, 20, 20, 20},
 		{100, 20, 80, 20},
@@ -21,7 +21,7 @@ func TestVtPosition(t *testing.T) {
 		{100, 100, 80, 25},
 	}
 
-	term := NewVT(4, 0)
+	var term Device = NewVT(4, 0)
 
 	// SetCursorPosition without an attached console is a no-op
 	term.SetCursorPosition(2, 2)
@@ -70,7 +70,7 @@ func TestVtWrite(t *testing.T) {
 		}
 
 		specs := []struct {
-			x, y    uint16
+			x, y    uint32
 			expByte uint8
 		}{
 			{1, 1, '1'},
@@ -121,7 +121,7 @@ func TestVtWrite(t *testing.T) {
 		}
 
 		specs := []struct {
-			x, y    uint16
+			x, y    uint32
 			expByte uint8
 		}{
 			{1, 1, '1'},
@@ -161,13 +161,13 @@ func TestVtLineFeedHandling(t *testing.T) {
 		// line feed. Cursor position will be automatically clipped to
 		// the viewport bounds
 		term.SetCursorPosition(1, term.viewportHeight+1)
-		for i := uint16(0); i < term.viewportWidth-1; i++ {
+		for i := uint32(0); i < term.viewportWidth-1; i++ {
 			term.WriteByte(byte('0' + (i % 10)))
 		}
 
 		// Emulate viewportHeight line feeds. The last one should cause a scroll
 		term.SetCursorPosition(0, 0) // cursor is set to (1,1)
-		for i := uint16(0); i < term.viewportHeight; i++ {
+		for i := uint32(0); i < term.viewportHeight; i++ {
 			term.lf(true)
 		}
 
@@ -178,7 +178,7 @@ func TestVtLineFeedHandling(t *testing.T) {
 		// Set cursor one line above the last; this line should now
 		// contain the scrolled contents
 		term.SetCursorPosition(1, term.viewportHeight-1)
-		for col, offset := uint16(1), term.dataOffset; col <= term.viewportWidth; col, offset = col+1, offset+3 {
+		for col, offset := uint32(1), term.dataOffset; col <= term.viewportWidth; col, offset = col+1, offset+3 {
 			expByte := byte('0' + ((col - 1) % 10))
 			if col == term.viewportWidth {
 				expByte = ' '
@@ -191,7 +191,7 @@ func TestVtLineFeedHandling(t *testing.T) {
 
 		// Set cursor to the last line. This line should now be cleared
 		term.SetCursorPosition(1, term.viewportHeight)
-		for col, offset := uint16(1), term.dataOffset; col <= term.viewportWidth; col, offset = col+1, offset+3 {
+		for col, offset := uint32(1), term.dataOffset; col <= term.viewportWidth; col, offset = col+1, offset+3 {
 			expByte := uint8(' ')
 			if term.data[offset] != expByte {
 				t.Errorf("expected char at (%d, %d) to be %q; got %q", col, term.viewportHeight, expByte, term.data[offset])
@@ -210,20 +210,20 @@ func TestVtLineFeedHandling(t *testing.T) {
 		// line feed. Cursor position will be automatically clipped to
 		// the viewport bounds
 		term.SetCursorPosition(1, term.viewportHeight+1)
-		for i := uint16(0); i < term.viewportWidth-1; i++ {
+		for i := uint32(0); i < term.viewportWidth-1; i++ {
 			term.WriteByte(byte('0' + (i % 10)))
 		}
 
 		// Fill first line including the last column
 		term.SetCursorPosition(1, 1)
-		for i := uint16(0); i < term.viewportWidth; i++ {
+		for i := uint32(0); i < term.viewportWidth; i++ {
 			term.WriteByte(byte('0' + (i % 10)))
 		}
 
 		// Emulate viewportHeight line feeds. The last one should cause a scroll
 		// in the console but only a viewport adjustment in the terminal
 		term.SetCursorPosition(0, 0) // cursor is set to (1,1)
-		for i := uint16(0); i < term.viewportHeight; i++ {
+		for i := uint32(0); i < term.viewportHeight; i++ {
 			term.lf(true)
 		}
 
@@ -231,7 +231,7 @@ func TestVtLineFeedHandling(t *testing.T) {
 			t.Fatalf("expected console to be scrolled up 1 time; got %d", cons.scrollUpCount)
 		}
 
-		if expViewportY := uint16(1); term.viewportY != expViewportY {
+		if expViewportY := uint32(1); term.viewportY != expViewportY {
 			t.Fatalf("expected terminal viewportY to be adjusted to %d; got %d", expViewportY, term.viewportY)
 		}
 
@@ -240,7 +240,7 @@ func TestVtLineFeedHandling(t *testing.T) {
 		term.SetCursorPosition(1, 1)
 		offset := term.dataOffset - uint(term.viewportWidth*3)
 
-		for col := uint16(1); col <= term.viewportWidth; col, offset = col+1, offset+3 {
+		for col := uint32(1); col <= term.viewportWidth; col, offset = col+1, offset+3 {
 			expByte := byte('0' + ((col - 1) % 10))
 
 			if term.data[offset] != expByte {
@@ -361,7 +361,7 @@ func TestVTProbe(t *testing.T) {
 }
 
 type mockConsole struct {
-	width, height   uint16
+	width, height   uint32
 	fg, bg          uint8
 	chars           []uint8
 	fgAttrs         []uint8
@@ -371,7 +371,7 @@ type mockConsole struct {
 	scrollDownCount int
 }
 
-func newMockConsole(w, h uint16) *mockConsole {
+func newMockConsole(w, h uint32) *mockConsole {
 	return &mockConsole{
 		width:   w,
 		height:  h,
@@ -383,7 +383,7 @@ func newMockConsole(w, h uint16) *mockConsole {
 	}
 }
 
-func (cons *mockConsole) Dimensions() (uint16, uint16) {
+func (cons *mockConsole) Dimensions() (uint32, uint32) {
 	return cons.width, cons.height
 }
 
@@ -391,7 +391,7 @@ func (cons *mockConsole) DefaultColors() (uint8, uint8) {
 	return cons.fg, cons.bg
 }
 
-func (cons *mockConsole) Fill(x, y, width, height uint16, fg, bg uint8) {
+func (cons *mockConsole) Fill(x, y, width, height uint32, fg, bg uint8) {
 	yEnd := y + height - 1
 	xEnd := x + width - 1
 
@@ -405,7 +405,7 @@ func (cons *mockConsole) Fill(x, y, width, height uint16, fg, bg uint8) {
 	}
 }
 
-func (cons *mockConsole) Scroll(dir console.ScrollDir, lines uint16) {
+func (cons *mockConsole) Scroll(dir console.ScrollDir, lines uint32) {
 	switch dir {
 	case console.ScrollDirUp:
 		cons.scrollUpCount++
@@ -421,7 +421,7 @@ func (cons *mockConsole) Palette() color.Palette {
 func (cons *mockConsole) SetPaletteColor(index uint8, color color.RGBA) {
 }
 
-func (cons *mockConsole) Write(b byte, fg, bg uint8, x, y uint16) {
+func (cons *mockConsole) Write(b byte, fg, bg uint8, x, y uint32) {
 	offset := ((y - 1) * cons.width) + (x - 1)
 	cons.chars[offset] = b
 	cons.fgAttrs[offset] = fg

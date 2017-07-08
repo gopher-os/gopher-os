@@ -42,11 +42,11 @@ type Device interface {
 
 	// CursorPosition returns the current cursor x,y coordinates. Both
 	// coordinates are 1-based (top-left corner has coordinates 1,1).
-	CursorPosition() (uint16, uint16)
+	CursorPosition() (uint32, uint32)
 
 	// SetCursorPosition sets the current cursor position to (x,y). Both
 	// coordinates are 1-based (top-left corner has coordinates 1,1).
 	// Implementations are expected to clip the cursor position to their
 	// viewport.
-	SetCursorPosition(x, y uint16)
+	SetCursorPosition(x, y uint32)
 }
