@@ -47,6 +47,8 @@ var (
 	// which will cause a fault if called in user-mode.
 	flushTLBEntryFn = cpu.FlushTLBEntry
 
+	earlyReserveRegionFn = EarlyReserveRegion
+
 	errNoHugePageSupport           = &kernel.Error{Module: "vmm", Message: "huge pages are not supported"}
 	errAttemptToRWMapReservedFrame = &kernel.Error{Module: "vmm", Message: "reserved blank frame cannot be mapped with a RW flag"}
 )
@@ -103,6 +105,29 @@ func Map(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
 	})
 
 	return err
+}
+
+// MapRegion establishes a mapping to the physical memory region which starts
+// at the given frame and ends at frame + pages(size). The size argument is
+// always rounded up to the nearest page boundary. MapRegion reserves the next
+// available region in the active virtual address space, establishes the
+// mapping and returns back the Page that corresponds to the region start.
+func MapRegion(frame pmm.Frame, size mem.Size, flags PageTableEntryFlag) (Page, *kernel.Error) {
+	// Reserve next free block in the address space
+	size = (size + (mem.PageSize - 1)) & ^(mem.PageSize - 1)
+	startPage, err := earlyReserveRegionFn(size)
+	if err != nil {
+		return 0, err
+	}
+
+	pageCount := size >> mem.PageShift
+	for page := PageFromAddress(startPage); pageCount > 0; pageCount, page, frame = pageCount-1, page+1, frame+1 {
+		if err := mapFn(page, frame, flags); err != nil {
+			return 0, err
+		}
+	}
+
+	return PageFromAddress(startPage), nil
 }
 
 // MapTemporary establishes a temporary RW mapping of a physical memory frame
