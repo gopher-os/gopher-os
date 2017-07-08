@@ -5,12 +5,9 @@ import "gopheros/kernel/hal/multiboot"
 
 var (
 	getFramebufferInfoFn = multiboot.GetFramebufferInfo
-)
 
-// HWProbes returns a slice of device.ProbeFn that can be used by the hal
-// package to probe for console device hardware.
-func HWProbes() []device.ProbeFn {
-	return []device.ProbeFn{
-		probeForVgaTextConsole,
-	}
-}
+	// ProbeFuncs is a slice of device probe functions that is used by
+	// the hal package to probe for console device hardware. Each driver
+	// should use an init() block to append its probe function to this list.
+	ProbeFuncs []device.ProbeFn
+)

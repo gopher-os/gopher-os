@@ -199,14 +199,15 @@ func (cons *VgaTextConsole) DriverVersion() (uint16, uint16, uint16) {
 // DriverInit initializes this driver.
 func (cons *VgaTextConsole) DriverInit() *kernel.Error { return nil }
 
-// probeForVgaTextConsole checks for the presence of a vga text console.
-func probeForVgaTextConsole() device.Driver {
-	var drv device.Driver
+func init() {
+	ProbeFuncs = append(ProbeFuncs, func() device.Driver {
+		var drv device.Driver
 
-	fbInfo := getFramebufferInfoFn()
-	if fbInfo.Type == multiboot.FramebufferTypeEGA {
-		drv = NewVgaTextConsole(fbInfo.Width, fbInfo.Height, uintptr(fbInfo.PhysAddr))
-	}
+		fbInfo := getFramebufferInfoFn()
+		if fbInfo.Type == multiboot.FramebufferTypeEGA {
+			drv = NewVgaTextConsole(fbInfo.Width, fbInfo.Height, uintptr(fbInfo.PhysAddr))
+		}
 
-	return drv
+		return drv
+	})
 }

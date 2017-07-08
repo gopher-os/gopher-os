@@ -23,12 +23,12 @@ func ActiveTTY() tty.Device {
 // DetectHardware probes for hardware devices and initializes the appropriate
 // drivers.
 func DetectHardware() {
-	consoles := probe(console.HWProbes())
+	consoles := probe(console.ProbeFuncs)
 	if len(consoles) != 0 {
 		devices.activeConsole = consoles[0].(console.Device)
 	}
 
-	ttys := probe(tty.HWProbes())
+	ttys := probe(tty.ProbeFuncs)
 	if len(ttys) != 0 {
 		devices.activeTTY = ttys[0].(tty.Device)
 		devices.activeTTY.AttachTo(devices.activeConsole)
