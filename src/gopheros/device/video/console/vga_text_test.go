@@ -2,8 +2,12 @@ package console
 
 import (
 	"gopheros/device"
+	"gopheros/kernel"
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/hal/multiboot"
+	"gopheros/kernel/mem"
+	"gopheros/kernel/mem/pmm"
+	"gopheros/kernel/mem/vmm"
 	"image/color"
 	"testing"
 	"unsafe"
@@ -63,6 +67,7 @@ func TestVgaTextFill(t *testing.T) {
 
 	fb := make([]uint16, 80*25)
 	cons := NewVgaTextConsole(80, 25, uintptr(unsafe.Pointer(&fb[0])))
+	cons.fb = fb
 	cw, ch := cons.Dimensions()
 
 	testPat := uint16(0xDEAD)
@@ -101,6 +106,7 @@ nextSpec:
 func TestVgaTextScroll(t *testing.T) {
 	fb := make([]uint16, 80*25)
 	cons := NewVgaTextConsole(80, 25, uintptr(unsafe.Pointer(&fb[0])))
+	cons.fb = fb
 	cw, ch := cons.Dimensions()
 
 	t.Run("up", func(t *testing.T) {
@@ -176,6 +182,7 @@ func TestVgaTextScroll(t *testing.T) {
 func TestVgaTextWrite(t *testing.T) {
 	fb := make([]uint16, 80*25)
 	cons := NewVgaTextConsole(80, 25, uintptr(unsafe.Pointer(&fb[0])))
+	cons.fb = fb
 	defaultFg, defaultBg := cons.DefaultColors()
 
 	t.Run("off-screen", func(t *testing.T) {
@@ -309,11 +316,10 @@ func TestVgaTextSetPaletteColor(t *testing.T) {
 }
 
 func TestVgaTextDriverInterface(t *testing.T) {
+	defer func() {
+		mapRegionFn = vmm.MapRegion
+	}()
 	var dev device.Driver = NewVgaTextConsole(80, 25, 0)
-
-	if err := dev.DriverInit(nil); err != nil {
-		t.Fatal(err)
-	}
 
 	if dev.DriverName() == "" {
 		t.Fatal("DriverName() returned an empty string")
@@ -322,6 +328,27 @@ func TestVgaTextDriverInterface(t *testing.T) {
 	if major, minor, patch := dev.DriverVersion(); major+minor+patch == 0 {
 		t.Fatal("DriverVersion() returned an invalid version number")
 	}
+
+	t.Run("init success", func(t *testing.T) {
+		mapRegionFn = func(_ pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+			return 0xb8000, nil
+		}
+
+		if err := dev.DriverInit(nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("init fail", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "something went wrong"}
+		mapRegionFn = func(_ pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+			return 0, expErr
+		}
+
+		if err := dev.DriverInit(nil); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
 }
 
 func TestVgaTextProbe(t *testing.T) {
