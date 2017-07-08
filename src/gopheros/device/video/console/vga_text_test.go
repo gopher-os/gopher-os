@@ -5,7 +5,6 @@ import (
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/hal/multiboot"
 	"image/color"
-	"reflect"
 	"testing"
 	"unsafe"
 )
@@ -329,22 +328,6 @@ func TestVgaTextProbe(t *testing.T) {
 	defer func() {
 		getFramebufferInfoFn = multiboot.GetFramebufferInfo
 	}()
-
-	var (
-		expProbePtr = reflect.ValueOf(probeForVgaTextConsole).Pointer()
-		foundProbe  bool
-	)
-
-	for _, probeFn := range HWProbes() {
-		if reflect.ValueOf(probeFn).Pointer() == expProbePtr {
-			foundProbe = true
-			break
-		}
-	}
-
-	if !foundProbe {
-		t.Fatal("expected probeForVgaTextConsole to be part of the probes returned by HWProbes")
-	}
 
 	getFramebufferInfoFn = func() *multiboot.FramebufferInfo {
 		return &multiboot.FramebufferInfo{

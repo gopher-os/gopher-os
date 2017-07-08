@@ -260,8 +260,10 @@ func (t *VT) DriverVersion() (uint16, uint16, uint16) {
 // DriverInit initializes this driver.
 func (t *VT) DriverInit() *kernel.Error { return nil }
 
+func probeForVT() device.Driver {
+	return NewVT(DefaultTabWidth, DefaultScrollback)
+}
+
 func init() {
-	ProbeFuncs = append(ProbeFuncs, func() device.Driver {
-		return NewVT(DefaultTabWidth, DefaultScrollback)
-	})
+	ProbeFuncs = append(ProbeFuncs, probeForVT)
 }

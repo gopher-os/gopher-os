@@ -5,7 +5,6 @@ import (
 	"gopheros/device/video/console"
 	"image/color"
 	"io"
-	"reflect"
 	"testing"
 )
 
@@ -339,22 +338,6 @@ func TestVTDriverInterface(t *testing.T) {
 }
 
 func TestVTProbe(t *testing.T) {
-	var (
-		expProbePtr = reflect.ValueOf(probeForVT).Pointer()
-		foundProbe  bool
-	)
-
-	for _, probeFn := range HWProbes() {
-		if reflect.ValueOf(probeFn).Pointer() == expProbePtr {
-			foundProbe = true
-			break
-		}
-	}
-
-	if !foundProbe {
-		t.Fatal("expected probeForVT to be part of the probes returned by HWProbes")
-	}
-
 	if drv := probeForVT(); drv == nil {
 		t.Fatal("expected probeForVT to return a driver")
 	}
