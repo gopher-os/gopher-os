@@ -149,8 +149,16 @@ func TestPrintf(t *testing.T) {
 		},
 	}
 
+	if sink := GetOutputSink(); sink != &earlyPrintBuffer {
+		t.Fatal("expected GetOutputSink() to return the earlyPrintBuffer when no output sink has been set")
+	}
+
 	var buf bytes.Buffer
 	SetOutputSink(&buf)
+
+	if sink := GetOutputSink(); sink != &buf {
+		t.Fatal("expected GetOutputSink() to return the value passed to SetOutputSink")
+	}
 
 	for specIndex, spec := range specs {
 		buf.Reset()

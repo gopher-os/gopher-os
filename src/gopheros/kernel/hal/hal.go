@@ -1,6 +1,7 @@
 package hal
 
 import (
+	"bytes"
 	"gopheros/device"
 	"gopheros/device/tty"
 	"gopheros/device/video/console"
@@ -13,7 +14,10 @@ type managedDevices struct {
 	activeTTY     tty.Device
 }
 
-var devices managedDevices
+var (
+	devices managedDevices
+	strBuf  bytes.Buffer
+)
 
 // ActiveTTY returns the currently active TTY
 func ActiveTTY() tty.Device {
@@ -43,7 +47,10 @@ func DetectHardware() {
 // each detected device. The function returns a list of device drivers that
 // were successfully initialized.
 func probe(hwProbeFns []device.ProbeFn) []device.Driver {
-	var drivers []device.Driver
+	var (
+		drivers []device.Driver
+		w       = kfmt.PrefixWriter{Sink: kfmt.GetOutputSink()}
+	)
 
 	for _, probeFn := range hwProbeFns {
 		drv := probeFn()
@@ -54,7 +61,7 @@ func probe(hwProbeFns []device.ProbeFn) []device.Driver {
 		strBuf.Reset()
 		major, minor, patch := drv.DriverVersion()
 		kfmt.Fprintf(&strBuf, "[hal] %s(%d.%d.%d): ", drv.DriverName(), major, minor, patch)
-		w.prefix = strBuf.Bytes()
+		w.Prefix = strBuf.Bytes()
 
 		if err := drv.DriverInit(&w); err != nil {
 			kfmt.Fprintf(&w, "init failed: %s\n", err.Message)

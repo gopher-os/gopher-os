@@ -31,6 +31,14 @@ var (
 	outputSink io.Writer
 )
 
+// GetOutputSink returns the default target for calls to Printf.
+func GetOutputSink() io.Writer {
+	if outputSink == nil {
+		return &earlyPrintBuffer
+	}
+	return outputSink
+}
+
 // SetOutputSink sets the default target for calls to Printf to w and copies
 // any data accumulated in the earlyPrintBuffer to itt .
 func SetOutputSink(w io.Writer) {
