@@ -6,6 +6,7 @@ import (
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/hal/multiboot"
 	"image/color"
+	"io"
 	"reflect"
 	"unsafe"
 )
@@ -197,7 +198,7 @@ func (cons *VgaTextConsole) DriverVersion() (uint16, uint16, uint16) {
 }
 
 // DriverInit initializes this driver.
-func (cons *VgaTextConsole) DriverInit() *kernel.Error { return nil }
+func (cons *VgaTextConsole) DriverInit(_ io.Writer) *kernel.Error { return nil }
 
 // probeForVgaTextConsole checks for the presence of a vga text console.
 func probeForVgaTextConsole() device.Driver {
