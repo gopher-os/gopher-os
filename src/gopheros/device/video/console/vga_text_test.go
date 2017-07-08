@@ -311,7 +311,7 @@ func TestVgaTextSetPaletteColor(t *testing.T) {
 func TestVgaTextDriverInterface(t *testing.T) {
 	var dev device.Driver = NewVgaTextConsole(80, 25, 0)
 
-	if err := dev.DriverInit(); err != nil {
+	if err := dev.DriverInit(nil); err != nil {
 		t.Fatal(err)
 	}
 

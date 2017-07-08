@@ -324,7 +324,7 @@ func TestVtSetState(t *testing.T) {
 func TestVTDriverInterface(t *testing.T) {
 	var dev device.Driver = NewVT(0, 0)
 
-	if err := dev.DriverInit(); err != nil {
+	if err := dev.DriverInit(nil); err != nil {
 		t.Fatal(err)
 	}
 
