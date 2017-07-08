@@ -51,16 +51,18 @@ func probe(hwProbeFns []device.ProbeFn) []device.Driver {
 			continue
 		}
 
+		strBuf.Reset()
 		major, minor, patch := drv.DriverVersion()
+		kfmt.Fprintf(&strBuf, "[hal] %s(%d.%d.%d): ", drv.DriverName(), major, minor, patch)
+		w.prefix = strBuf.Bytes()
 
-		kfmt.Printf("[hal] %s(%d.%d.%d): ", drv.DriverName(), major, minor, patch)
-		if err := drv.DriverInit(); err != nil {
-			kfmt.Printf("init failed: %s\n", err.Message)
+		if err := drv.DriverInit(&w); err != nil {
+			kfmt.Fprintf(&w, "init failed: %s\n", err.Message)
 			continue
 		}
 
+		kfmt.Fprintf(&w, "initialized\n")
 		drivers = append(drivers, drv)
-		kfmt.Printf("initialized\n")
 	}
 
 	return drivers
