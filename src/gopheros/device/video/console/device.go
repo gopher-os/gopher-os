@@ -1,6 +1,9 @@
 package console
 
-import "image/color"
+import (
+	"gopheros/device/video/console/font"
+	"image/color"
+)
 
 // ScrollDir defines a scroll direction.
 type ScrollDir uint8
@@ -42,4 +45,12 @@ type Device interface {
 	// palette index. Passing a color index greated than the number of
 	// supported colors should be a no-op.
 	SetPaletteColor(uint8, color.RGBA)
+}
+
+// FontSetter is an interface implemented by console devices that
+// support loadable bitmap fonts.
+//
+// SetFont selects a bitmap font to be used by the console.
+type FontSetter interface {
+	SetFont(*font.Font)
 }
