@@ -14,11 +14,25 @@ const (
 	ScrollDirDown
 )
 
+// Dimension defines the types of dimensions that can be queried off a device.
+type Dimension uint8
+
+const (
+	// Characters describes the number of characters in
+	// the console depending on the currently active
+	// font.
+	Characters Dimension = iota
+
+	// Pixels describes the number of pixels in the console framebuffer.
+	Pixels
+)
+
 // The Device interface is implemented by objects that can function as system
 // consoles.
 type Device interface {
-	// Dimensions returns the width and height of the console in characters.
-	Dimensions() (uint32, uint32)
+	// Pixel returns the width and height of the console
+	// using a particual dimension.
+	Dimensions(Dimension) (uint32, uint32)
 
 	// DefaultColors returns the default foreground and background colors
 	// used by this console.

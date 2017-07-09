@@ -70,9 +70,14 @@ func NewVgaTextConsole(columns, rows uint32, fbPhysAddr uintptr) *VgaTextConsole
 	}
 }
 
-// Dimensions returns the console width and height in characters.
-func (cons *VgaTextConsole) Dimensions() (uint32, uint32) {
-	return cons.width, cons.height
+// Dimensions returns the console width and height in the specified dimension.
+func (cons *VgaTextConsole) Dimensions(dim Dimension) (uint32, uint32) {
+	switch dim {
+	case Characters:
+		return cons.width, cons.height
+	default:
+		return cons.width * 8, cons.height * 16
+	}
 }
 
 // DefaultColors returns the default foreground and background colors

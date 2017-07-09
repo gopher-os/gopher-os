@@ -15,8 +15,17 @@ import (
 
 func TestVgaTextDimensions(t *testing.T) {
 	var cons Device = NewVgaTextConsole(40, 50, 0)
-	if w, h := cons.Dimensions(); w != 40 || h != 50 {
+	if w, h := cons.Dimensions(Characters); w != 40 || h != 50 {
 		t.Fatalf("expected console dimensions to be 80x25; got %dx%d", w, h)
+	}
+
+	var (
+		expW uint32 = 40 * 8
+		expH uint32 = 50 * 16
+	)
+
+	if w, h := cons.Dimensions(Pixels); w != expW || h != expH {
+		t.Fatalf("expected console dimensions to be %dx%d; got %dx%d", expW, expH, w, h)
 	}
 }
 
@@ -68,7 +77,7 @@ func TestVgaTextFill(t *testing.T) {
 	fb := make([]uint16, 80*25)
 	cons := NewVgaTextConsole(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 	cons.fb = fb
-	cw, ch := cons.Dimensions()
+	cw, ch := cons.Dimensions(Characters)
 
 	testPat := uint16(0xDEAD)
 	clearPat := uint16(cons.clearChar)
@@ -107,7 +116,7 @@ func TestVgaTextScroll(t *testing.T) {
 	fb := make([]uint16, 80*25)
 	cons := NewVgaTextConsole(80, 25, uintptr(unsafe.Pointer(&fb[0])))
 	cons.fb = fb
-	cw, ch := cons.Dimensions()
+	cw, ch := cons.Dimensions(Characters)
 
 	t.Run("up", func(t *testing.T) {
 		specs := []uint32{
