@@ -6,6 +6,12 @@ import (
 	"unsafe"
 )
 
+var (
+	infoData       uintptr
+	cmdLineKV      map[string]string
+	elfSectionList []*ElfSection
+)
+
 type tagType uint32
 
 // nolint
@@ -140,11 +146,6 @@ const (
 	memUnknown
 )
 
-var (
-	infoData  uintptr
-	cmdLineKV map[string]string
-)
-
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
 // for each memory region provided by the boot loader. The visitor must return true
 // to continue or false to abort the scan.
@@ -177,6 +178,115 @@ func (t MemoryEntryType) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+type elfSections struct {
+	numSections        uint16
+	sectionSize        uint32
+	strtabSectionIndex uint32
+	sectionData        [0]byte
+}
+
+/*
+type elfSection32 struct {
+	nameIndex   uint32
+	sectionType uint32
+	flags       uint32
+	address     uint32
+	offset      uint32
+	size        uint32
+	link        uint32
+	info        uint32
+	addrAlign   uint32
+	entSize     uint32
+}
+*/
+
+type elfSection64 struct {
+	nameIndex   uint32
+	sectionType uint32
+	flags       uint64
+	address     uint64
+	offset      uint64
+	size        uint64
+	link        uint32
+	info        uint32
+	addrAlign   uint64
+	entSize     uint64
+}
+
+// ElfSectionFlag defines an OR-able flag associated with an ElfSection.
+type ElfSectionFlag uint32
+
+const (
+	// ElfSectionWritable marks the section as writable.
+	ElfSectionWritable ElfSectionFlag = 1 << iota
+
+	// ElfSectionAllocated means that the section is allocated in memory
+	// when the image is loaded (e.g .bss sections)
+	ElfSectionAllocated
+
+	// ElfSectionExecutable marks the section as executable.
+	ElfSectionExecutable
+)
+
+// ElfSection deefines the name, flags and virtual address of an ELF section
+// which is part of the kernel image.
+type ElfSection struct {
+	// The section name.
+	Name string
+
+	// The list of flags associated with this section
+	Flags ElfSectionFlag
+
+	// The virtual address of this section.
+	Address uintptr
+}
+
+// GetElfSections returns a slice of ElfSections for the loaded kernel image.
+func GetElfSections() []*ElfSection {
+	if elfSectionList != nil {
+		return elfSectionList
+	}
+
+	curPtr, size := findTagByType(tagElfSymbols)
+	if size == 0 {
+		return nil
+	}
+
+	ptrElfSections := (*elfSections)(unsafe.Pointer(curPtr))
+	sectionData := *(*[]elfSection64)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(ptrElfSections.numSections),
+		Cap:  int(ptrElfSections.numSections),
+		Data: uintptr(unsafe.Pointer(&ptrElfSections.sectionData)),
+	}))
+
+	var (
+		strTable = *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Len:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
+			Cap:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
+			Data: uintptr(sectionData[ptrElfSections.strtabSectionIndex].address),
+		}))
+	)
+
+	for _, secData := range sectionData {
+		if secData.size == 0 {
+			continue
+		}
+
+		// String table entries are C-style NULL-terminated strings
+		end := secData.nameIndex
+		for ; strTable[end] != 0; end++ {
+		}
+
+		elfSectionList = append(elfSectionList, &ElfSection{
+			Name:    string(strTable[secData.nameIndex:end]),
+			Flags:   ElfSectionFlag(secData.flags),
+			Address: uintptr(secData.address),
+		})
+	}
+
+	return elfSectionList
 }
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
