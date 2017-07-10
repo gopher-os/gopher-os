@@ -1,6 +1,16 @@
 package multiboot
 
-import "unsafe"
+import (
+	"reflect"
+	"strings"
+	"unsafe"
+)
+
+var (
+	infoData       uintptr
+	cmdLineKV      map[string]string
+	elfSectionList []*ElfSection
+)
 
 type tagType uint32
 
@@ -52,8 +62,8 @@ type mmapHeader struct {
 type FramebufferType uint8
 
 const (
-	// FrameBufferTypeIndexed specifies a 256-color palette.
-	FrameBufferTypeIndexed FramebufferType = iota
+	// FramebufferTypeIndexed specifies a 256-color palette.
+	FramebufferTypeIndexed FramebufferType = iota
 
 	// FramebufferTypeRGB specifies direct RGB mode.
 	FramebufferTypeRGB
@@ -78,6 +88,41 @@ type FramebufferInfo struct {
 
 	// Framebuffer type.
 	Type FramebufferType
+
+	reserved uint16
+
+	// The colorInfo data begins after the reserved block and has different
+	// contents depending on the framebuffer type. This dummy field is used
+	// for obtaining a pointer to the color info block data.
+	colorInfo [0]byte
+}
+
+// RGBColorInfo returns the FramebufferRGBColorInfo for a RGB framebuffer.
+func (i *FramebufferInfo) RGBColorInfo() *FramebufferRGBColorInfo {
+	if i.Type != FramebufferTypeRGB {
+		return nil
+	}
+
+	// The color info data begins after the reserved attribute. To access
+	// it, a pointer is created to the dummy colorInfo attribute which
+	// points to the color info data start.
+	return (*FramebufferRGBColorInfo)(unsafe.Pointer(&i.colorInfo))
+}
+
+// FramebufferRGBColorInfo describes the order and width of each color component
+// for a 15-, 16-, 24- or 32-bit framebuffer.
+type FramebufferRGBColorInfo struct {
+	// The position and width (in bits) of the red component.
+	RedPosition uint8
+	RedMaskSize uint8
+
+	// The position and width (in bits) of the green component.
+	GreenPosition uint8
+	GreenMaskSize uint8
+
+	// The position and width (in bits) of the blue component.
+	BluePosition uint8
+	BlueMaskSize uint8
 }
 
 // MemoryEntryType defines the type of a MemoryMapEntry.
@@ -99,10 +144,6 @@ const (
 
 	// Any value >= memUnknown will be mapped to MemReserved.
 	memUnknown
-)
-
-var (
-	infoData uintptr
 )
 
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
@@ -137,6 +178,115 @@ func (t MemoryEntryType) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+type elfSections struct {
+	numSections        uint16
+	sectionSize        uint32
+	strtabSectionIndex uint32
+	sectionData        [0]byte
+}
+
+/*
+type elfSection32 struct {
+	nameIndex   uint32
+	sectionType uint32
+	flags       uint32
+	address     uint32
+	offset      uint32
+	size        uint32
+	link        uint32
+	info        uint32
+	addrAlign   uint32
+	entSize     uint32
+}
+*/
+
+type elfSection64 struct {
+	nameIndex   uint32
+	sectionType uint32
+	flags       uint64
+	address     uint64
+	offset      uint64
+	size        uint64
+	link        uint32
+	info        uint32
+	addrAlign   uint64
+	entSize     uint64
+}
+
+// ElfSectionFlag defines an OR-able flag associated with an ElfSection.
+type ElfSectionFlag uint32
+
+const (
+	// ElfSectionWritable marks the section as writable.
+	ElfSectionWritable ElfSectionFlag = 1 << iota
+
+	// ElfSectionAllocated means that the section is allocated in memory
+	// when the image is loaded (e.g .bss sections)
+	ElfSectionAllocated
+
+	// ElfSectionExecutable marks the section as executable.
+	ElfSectionExecutable
+)
+
+// ElfSection deefines the name, flags and virtual address of an ELF section
+// which is part of the kernel image.
+type ElfSection struct {
+	// The section name.
+	Name string
+
+	// The list of flags associated with this section
+	Flags ElfSectionFlag
+
+	// The virtual address of this section.
+	Address uintptr
+}
+
+// GetElfSections returns a slice of ElfSections for the loaded kernel image.
+func GetElfSections() []*ElfSection {
+	if elfSectionList != nil {
+		return elfSectionList
+	}
+
+	curPtr, size := findTagByType(tagElfSymbols)
+	if size == 0 {
+		return nil
+	}
+
+	ptrElfSections := (*elfSections)(unsafe.Pointer(curPtr))
+	sectionData := *(*[]elfSection64)(unsafe.Pointer(&reflect.SliceHeader{
+		Len:  int(ptrElfSections.numSections),
+		Cap:  int(ptrElfSections.numSections),
+		Data: uintptr(unsafe.Pointer(&ptrElfSections.sectionData)),
+	}))
+
+	var (
+		strTable = *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Len:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
+			Cap:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
+			Data: uintptr(sectionData[ptrElfSections.strtabSectionIndex].address),
+		}))
+	)
+
+	for _, secData := range sectionData {
+		if secData.size == 0 {
+			continue
+		}
+
+		// String table entries are C-style NULL-terminated strings
+		end := secData.nameIndex
+		for ; strTable[end] != 0; end++ {
+		}
+
+		elfSectionList = append(elfSectionList, &ElfSection{
+			Name:    string(strTable[secData.nameIndex:end]),
+			Flags:   ElfSectionFlag(secData.flags),
+			Address: uintptr(secData.address),
+		})
+	}
+
+	return elfSectionList
 }
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
@@ -187,6 +337,39 @@ func GetFramebufferInfo() *FramebufferInfo {
 	}
 
 	return info
+}
+
+// GetBootCmdLine returns the command line key-value pairs passed to the
+// kernel.  This function must only be invoked after bootstrapping the memory
+// allocator.
+func GetBootCmdLine() map[string]string {
+	if cmdLineKV != nil {
+		return cmdLineKV
+	}
+
+	cmdLineKV = make(map[string]string)
+
+	curPtr, size := findTagByType(tagBootCmdLine)
+	if size != 0 {
+		// The command line is a C-style NULL-terminated string
+		cmdLine := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Len:  int(size - 1),
+			Cap:  int(size - 1),
+			Data: curPtr,
+		}))
+		pairs := strings.Fields(string(cmdLine))
+		for _, pair := range pairs {
+			kv := strings.Split(pair, "=")
+			switch len(kv) {
+			case 2: // foo=bar
+				cmdLineKV[kv[0]] = kv[1]
+			case 1: // nofoo
+				cmdLineKV[kv[0]] = kv[0]
+			}
+		}
+	}
+
+	return cmdLineKV
 }
 
 // findTagByType scans the multiboot info data looking for the start of of the
