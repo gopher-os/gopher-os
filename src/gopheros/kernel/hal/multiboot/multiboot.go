@@ -1,6 +1,10 @@
 package multiboot
 
-import "unsafe"
+import (
+	"reflect"
+	"strings"
+	"unsafe"
+)
 
 type tagType uint32
 
@@ -137,7 +141,8 @@ const (
 )
 
 var (
-	infoData uintptr
+	infoData  uintptr
+	cmdLineKV map[string]string
 )
 
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
@@ -222,6 +227,39 @@ func GetFramebufferInfo() *FramebufferInfo {
 	}
 
 	return info
+}
+
+// GetBootCmdLine returns the command line key-value pairs passed to the
+// kernel.  This function must only be invoked after bootstrapping the memory
+// allocator.
+func GetBootCmdLine() map[string]string {
+	if cmdLineKV != nil {
+		return cmdLineKV
+	}
+
+	cmdLineKV = make(map[string]string)
+
+	curPtr, size := findTagByType(tagBootCmdLine)
+	if size != 0 {
+		// The command line is a C-style NULL-terminated string
+		cmdLine := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Len:  int(size - 1),
+			Cap:  int(size - 1),
+			Data: curPtr,
+		}))
+		pairs := strings.Fields(string(cmdLine))
+		for _, pair := range pairs {
+			kv := strings.Split(pair, "=")
+			switch len(kv) {
+			case 2: // foo=bar
+				cmdLineKV[kv[0]] = kv[1]
+			case 1: // nofoo
+				cmdLineKV[kv[0]] = kv[0]
+			}
+		}
+	}
+
+	return cmdLineKV
 }
 
 // findTagByType scans the multiboot info data looking for the start of of the
