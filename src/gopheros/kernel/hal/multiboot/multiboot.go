@@ -52,8 +52,8 @@ type mmapHeader struct {
 type FramebufferType uint8
 
 const (
-	// FrameBufferTypeIndexed specifies a 256-color palette.
-	FrameBufferTypeIndexed FramebufferType = iota
+	// FramebufferTypeIndexed specifies a 256-color palette.
+	FramebufferTypeIndexed FramebufferType = iota
 
 	// FramebufferTypeRGB specifies direct RGB mode.
 	FramebufferTypeRGB
@@ -78,6 +78,41 @@ type FramebufferInfo struct {
 
 	// Framebuffer type.
 	Type FramebufferType
+
+	reserved uint16
+
+	// The colorInfo data begins after the reserved block and has different
+	// contents depending on the framebuffer type. This dummy field is used
+	// for obtaining a pointer to the color info block data.
+	colorInfo [0]byte
+}
+
+// RGBColorInfo returns the FramebufferRGBColorInfo for a RGB framebuffer.
+func (i *FramebufferInfo) RGBColorInfo() *FramebufferRGBColorInfo {
+	if i.Type != FramebufferTypeRGB {
+		return nil
+	}
+
+	// The color info data begins after the reserved attribute. To access
+	// it, a pointer is created to the dummy colorInfo attribute which
+	// points to the color info data start.
+	return (*FramebufferRGBColorInfo)(unsafe.Pointer(&i.colorInfo))
+}
+
+// FramebufferRGBColorInfo describes the order and width of each color component
+// for a 15-, 16-, 24- or 32-bit framebuffer.
+type FramebufferRGBColorInfo struct {
+	// The position and width (in bits) of the red component.
+	RedPosition uint8
+	RedMaskSize uint8
+
+	// The position and width (in bits) of the green component.
+	GreenPosition uint8
+	GreenMaskSize uint8
+
+	// The position and width (in bits) of the blue component.
+	BluePosition uint8
+	BlueMaskSize uint8
 }
 
 // MemoryEntryType defines the type of a MemoryMapEntry.
