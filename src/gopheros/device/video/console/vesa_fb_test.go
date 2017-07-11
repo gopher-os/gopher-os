@@ -148,6 +148,106 @@ func TestVesaFbWrite8bpp(t *testing.T) {
 	}
 }
 
+func TestVesaFbWrite16bpp(t *testing.T) {
+	specs := []struct {
+		consW, consH, offsetY uint32
+		font                  *font.Font
+		expFb                 []byte
+	}{
+		{
+			16, 16, 6,
+			mockFont8x10,
+			[]byte("" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000001400000000" +
+				"00000000000000000000141414000000" +
+				"00000000000000000014140014140000" +
+				"00000000000000001414000000141400" +
+				"00000000000000001414000000141400" +
+				"00000000000000001414141414141400" +
+				"00000000000000001414000000141400" +
+				"00000000000000001414000000141400" +
+				"00000000000000001414000000141400" +
+				"00000000000000001414000000141400",
+			),
+		},
+		{
+			20, 20, 3,
+			mockFont10x14,
+			[]byte("" +
+				"0000000000000000000000000000000000000000" +
+				"0000000000000000000000000000000000000000" +
+				"0000000000000000000000000000000000000000" +
+				"0000000000000000000000000000001400000000" +
+				"0000000000000000000000000000001400000000" +
+				"0000000000000000000000000000141414000000" +
+				"0000000000000000000000000000141414000000" +
+				"0000000000000000000000000014140014140000" +
+				"0000000000000000000000000014140014140000" +
+				"0000000000000000000000000014140000141400" +
+				"0000000000000000000000001414000000141400" +
+				"0000000000000000000000001414141414141400" +
+				"0000000000000000000000001414000000141400" +
+				"0000000000000000000000141400000000141400" +
+				"0000000000000000000000141400000000001414" +
+				"0000000000000000000000141400000000001414" +
+				"0000000000000000000014141414000000141414" +
+				"0000000000000000000000000000000000000000" +
+				"0000000000000000000000000000000000000000" +
+				"0000000000000000000000000000000000000000",
+			),
+		},
+	}
+
+	var (
+		// RGB555
+		colorInfo = &multiboot.FramebufferRGBColorInfo{
+			RedPosition:   10,
+			RedMaskSize:   5,
+			GreenPosition: 5,
+			GreenMaskSize: 5,
+			BluePosition:  0,
+			BlueMaskSize:  5,
+		}
+		fg      = uint8(1)
+		fgColor = color.RGBA{R: 10, G: 0, B: 12}
+		bg      = uint8(0)
+	)
+
+	for specIndex, spec := range specs {
+		fb := make([]uint8, spec.consW*spec.consH*2)
+
+		cons := NewVesaFbConsole(spec.consW, spec.consH, 16, spec.consW*2, colorInfo, 0)
+		cons.fb = fb
+		cons.offsetY = spec.offsetY
+		cons.SetFont(spec.font)
+		cons.loadDefaultPalette()
+		cons.SetPaletteColor(fg, fgColor)
+
+		// ASCII 0 maps to the a blank character in the mock font
+		// ASCII 1 maps to the letter 'A' in the mock font
+		cons.Write(0, fg, bg, 0, 0)
+		cons.Write(1, fg, bg, 2, 1)
+
+		// Convert expected contents from ASCII to byte
+		for i := 0; i < len(spec.expFb); i++ {
+			spec.expFb[i] -= '0'
+		}
+
+		if !reflect.DeepEqual(spec.expFb, fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(spec.consW, spec.consH, spec.consW*2, spec.expFb, fb),
+			)
+		}
+	}
+}
+
 func TestVesaFbWrite24bpp(t *testing.T) {
 	specs := []struct {
 		consW, consH, offsetY uint32
@@ -664,6 +764,227 @@ func TestVesaFbFill8(t *testing.T) {
 	}
 }
 
+func TestVesaFbFill16(t *testing.T) {
+	var (
+		consW, consH uint32 = 16, 26
+		// RGB555
+		colorInfo = &multiboot.FramebufferRGBColorInfo{
+			RedPosition:   10,
+			RedMaskSize:   5,
+			GreenPosition: 5,
+			GreenMaskSize: 5,
+			BluePosition:  0,
+			BlueMaskSize:  5,
+		}
+		bg      uint8 = 1
+		bgColor       = color.RGBA{R: 10, G: 0, B: 12}
+		origFb        = []byte("" +
+			"66666666666666666666666666666666" + // }
+			"77777777777777777777777777777777" + // }- reserved rows
+			"88888888888888888888888888888888" + // }
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000" +
+			"00000000000000000000000000000000",
+		)
+	)
+	specs := []struct {
+		// Input rect in characters
+		x, y, w, h uint32
+		offsetY    uint32
+		expFb      []byte
+	}{
+		{
+			0, 0, 1, 1,
+			0,
+			[]byte("" +
+				"14141414141414146666666666666666" + // }
+				"14141414141414147777777777777777" + // }- reserved rows
+				"14141414141414148888888888888888" + // }
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"14141414141414140000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000",
+			),
+		},
+		{
+			2, 0, 10, 1,
+			3,
+			[]byte("" +
+				"66666666666666666666666666666666" + // }
+				"77777777777777777777777777777777" + // }- reserved rows
+				"88888888888888888888888888888888" + // }
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000",
+			),
+		},
+		{
+			0, 0, 100, 100,
+			3,
+			[]byte("" +
+				"66666666666666666666666666666666" + // }
+				"77777777777777777777777777777777" + // }- reserved rows
+				"88888888888888888888888888888888" + // }
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"14141414141414141414141414141414" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000",
+			),
+		},
+		{
+			100, 100, 1, 1,
+			6,
+			[]byte("" +
+				"66666666666666666666666666666666" + // }
+				"77777777777777777777777777777777" + // }- reserved rows
+				"88888888888888888888888888888888" + // }
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000000000000000000000" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414" +
+				"00000000000000001414141414141414",
+			),
+		},
+	}
+
+	// Convert original fb contents from ASCII to byte
+	for i := 0; i < len(origFb); i++ {
+		origFb[i] -= '0'
+	}
+
+	for specIndex, spec := range specs {
+		// Convert expected contents from ASCII to byte
+		for i := 0; i < len(spec.expFb); i++ {
+			spec.expFb[i] -= '0'
+		}
+
+		fb := make([]uint8, consW*consH*2)
+		copy(fb, origFb)
+
+		cons := NewVesaFbConsole(consW, consH, 16, consW*2, colorInfo, 0)
+		cons.fb = fb
+		cons.offsetY = spec.offsetY
+		cons.loadDefaultPalette()
+		cons.SetPaletteColor(bg, bgColor)
+
+		// Calling fill before selecting a font should be a no-op
+		cons.Fill(spec.x, spec.y, spec.w, spec.h, 0, bg)
+		if !reflect.DeepEqual(origFb, fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, consW*3, origFb, fb),
+			)
+		}
+
+		cons.SetFont(mockFont8x10)
+
+		cons.Fill(spec.x, spec.y, spec.w, spec.h, 0, bg)
+
+		if !reflect.DeepEqual(spec.expFb, fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, consW*2, spec.expFb, fb),
+			)
+		}
+	}
+}
+
 func TestVesaFbFill24(t *testing.T) {
 	var (
 		consW, consH uint32 = 16, 26
@@ -968,6 +1289,69 @@ func TestVesaFbPalette(t *testing.T) {
 	}
 }
 
+func TestVesaFbReplace16(t *testing.T) {
+	var (
+		consW, consH uint32 = 4, 4
+		// BGR
+		colorInfo = &multiboot.FramebufferRGBColorInfo{
+			RedPosition:   10,
+			RedMaskSize:   5,
+			GreenPosition: 5,
+			GreenMaskSize: 5,
+			BluePosition:  0,
+			BlueMaskSize:  5,
+		}
+	)
+
+	specs := []struct {
+		bpp   uint8
+		inpFb []byte
+		expFb []byte
+	}{
+		{
+			24,
+			[]byte{
+				0x00, 0x00, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x00, 0x00, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x00, 0x00, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x00, 0x00, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+			},
+			[]byte{
+				0x34, 0x12, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x34, 0x12, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x34, 0x12, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+				0x34, 0x12, 0x12, 0x00, 0x00, 0x34, 0x34, 0x12,
+			},
+		},
+	}
+
+	for specIndex, spec := range specs {
+		fb := make([]uint8, consW*consH*2)
+		copy(fb, spec.inpFb)
+
+		cons := NewVesaFbConsole(consW, consH, 16, consW*2, colorInfo, 0)
+		cons.fb = fb
+		cons.palette = make(color.Palette, 1)
+
+		// First color update should not trigger a replace as the color is not used yet
+		cons.SetPaletteColor(0, color.RGBA{})
+		if !reflect.DeepEqual(spec.inpFb, fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, cons.pitch, spec.expFb, fb),
+			)
+		}
+
+		// Second color update should replace existing pixels with the new RGB value
+		cons.SetPaletteColor(0, color.RGBA{R: 32, G: 136, B: 160})
+		if !reflect.DeepEqual(spec.expFb, fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, cons.pitch, spec.expFb, fb),
+			)
+		}
+	}
+}
 func TestVesaFbReplace24(t *testing.T) {
 	var (
 		consW, consH uint32 = 4, 4
@@ -1109,6 +1493,58 @@ func TestVesaFbProbe(t *testing.T) {
 
 	if drv := probeForVesaFbConsole(); drv == nil {
 		t.Fatal("expected probeForVesaFbConsole to return a driver")
+	}
+}
+
+func TestVesaFbPackColor16(t *testing.T) {
+	specs := []struct {
+		colorInfo *multiboot.FramebufferRGBColorInfo
+		input     color.RGBA
+		exp       uint16
+	}{
+		{
+			// RGB555
+			&multiboot.FramebufferRGBColorInfo{
+				RedPosition:   10,
+				RedMaskSize:   5,
+				GreenPosition: 5,
+				GreenMaskSize: 5,
+				BluePosition:  0,
+				BlueMaskSize:  5,
+			},
+			color.RGBA{R: 32, G: 136, B: 160},
+			0x1234,
+		},
+		{
+			// RGB565
+			&multiboot.FramebufferRGBColorInfo{
+				RedPosition:   11,
+				RedMaskSize:   5,
+				GreenPosition: 5,
+				GreenMaskSize: 6,
+				BluePosition:  0,
+				BlueMaskSize:  5,
+			},
+			color.RGBA{R: 250, G: 200, B: 120},
+			(250>>3)<<11 | (200>>2)<<5 | (120 >> 3),
+		},
+	}
+
+	cons := NewVesaFbConsole(0, 0, 16, 0, nil, 0)
+	cons.palette = make(color.Palette, 256)
+
+	for specIndex, spec := range specs {
+		cons.colorInfo = spec.colorInfo
+		cons.palette[0] = spec.input
+
+		exp := [2]uint8{
+			uint8(spec.exp),
+			uint8(spec.exp >> 8),
+		}
+
+		if got := cons.packColor16(0); got != exp {
+			t.Errorf("[spec %d] expected: %v; got %v", specIndex, exp, got)
+		}
 	}
 }
 

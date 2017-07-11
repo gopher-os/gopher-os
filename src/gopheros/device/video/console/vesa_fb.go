@@ -123,6 +123,8 @@ func (cons *VesaFbConsole) Fill(x, y, width, height uint32, _, bg uint8) {
 	switch cons.bpp {
 	case 8:
 		cons.fill8(pX, pY, pW, pH, bg)
+	case 15, 16:
+		cons.fill16(pX, pY, pW, pH, bg)
 	case 24, 32:
 		cons.fill24(pX, pY, pW, pH, bg)
 	}
@@ -134,6 +136,18 @@ func (cons *VesaFbConsole) fill8(pX, pY, pW, pH uint32, bg uint8) {
 	for ; pH > 0; pH, fbRowOffset = pH-1, fbRowOffset+cons.pitch {
 		for fbOffset := fbRowOffset; fbOffset < fbRowOffset+pW; fbOffset++ {
 			cons.fb[fbOffset] = bg
+		}
+	}
+}
+
+// fill16 implements a fill operation using a 15/16bpp framebuffer.
+func (cons *VesaFbConsole) fill16(pX, pY, pW, pH uint32, bg uint8) {
+	comp := cons.packColor16(bg)
+	fbRowOffset := cons.fbOffset(pX, pY)
+	for ; pH > 0; pH, fbRowOffset = pH-1, fbRowOffset+cons.pitch {
+		for fbOffset := fbRowOffset; fbOffset < fbRowOffset+pW*cons.bytesPerPixel; fbOffset += cons.bytesPerPixel {
+			cons.fb[fbOffset] = comp[0]
+			cons.fb[fbOffset+1] = comp[1]
 		}
 	}
 }
@@ -190,6 +204,8 @@ func (cons *VesaFbConsole) Write(ch byte, fg, bg uint8, x, y uint32) {
 	switch cons.bpp {
 	case 8:
 		cons.write8(ch, fg, bg, pX, pY)
+	case 15, 16:
+		cons.write16(ch, fg, bg, pX, pY)
 	case 24, 32:
 		cons.write24(ch, fg, bg, pX, pY)
 	}
@@ -328,6 +344,23 @@ func (cons *VesaFbConsole) packColor24(colorIndex uint8) [3]uint8 {
 	}
 }
 
+// packColor16 encodes a palette color into the pixel format required by a
+// 15/16 bpp framebuffer.
+func (cons *VesaFbConsole) packColor16(colorIndex uint8) [2]uint8 {
+	var (
+		c             = cons.palette[colorIndex].(color.RGBA)
+		packed uint16 = 0 |
+			(uint16(c.R>>(8-cons.colorInfo.RedMaskSize)) << cons.colorInfo.RedPosition) |
+			(uint16(c.G>>(8-cons.colorInfo.GreenMaskSize)) << cons.colorInfo.GreenPosition) |
+			(uint16(c.B>>(8-cons.colorInfo.BlueMaskSize)) << cons.colorInfo.BluePosition)
+	)
+
+	return [2]uint8{
+		uint8(packed),
+		uint8(packed >> 8),
+	}
+}
+
 // Palette returns the active color palette for this console.
 func (cons *VesaFbConsole) Palette() color.Palette {
 	return cons.palette
@@ -353,12 +386,36 @@ func (cons *VesaFbConsole) SetPaletteColor(index uint8, rgba color.RGBA) {
 		portWriteByteFn(0x3c9, rgba.R>>2)
 		portWriteByteFn(0x3c9, rgba.G>>2)
 		portWriteByteFn(0x3c9, rgba.B>>2)
+	case 15, 16:
+		if oldColor == nil {
+			return
+		}
+
+		cons.replace16(oldColor.(color.RGBA), rgba)
 	case 24, 32:
 		if oldColor == nil {
 			return
 		}
 
 		cons.replace24(oldColor.(color.RGBA), rgba)
+	}
+}
+
+// replace16 replaces all srcColor values with dstColor using a 15/16bpp
+// framebuffer.
+func (cons *VesaFbConsole) replace16(src, dst color.RGBA) {
+	tmp := cons.palette[0]
+	cons.palette[0] = src
+	srcComp := cons.packColor16(0)
+	cons.palette[0] = dst
+	dstComp := cons.packColor16(0)
+	cons.palette[0] = tmp
+	for fbOffset := uint32(0); fbOffset < uint32(len(cons.fb)); fbOffset += cons.bytesPerPixel {
+		if cons.fb[fbOffset] == srcComp[0] &&
+			cons.fb[fbOffset+1] == srcComp[1] {
+			cons.fb[fbOffset] = dstComp[0]
+			cons.fb[fbOffset+1] = dstComp[1]
+		}
 	}
 }
 
