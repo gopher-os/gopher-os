@@ -5,6 +5,8 @@ import (
 	"gopheros/device"
 	"gopheros/device/tty"
 	"gopheros/device/video/console"
+	"gopheros/device/video/console/font"
+	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
 )
 
@@ -30,6 +32,28 @@ func DetectHardware() {
 	consoles := probe(console.ProbeFuncs)
 	if len(consoles) != 0 {
 		devices.activeConsole = consoles[0].(console.Device)
+
+		if fontSetter, ok := (devices.activeConsole).(console.FontSetter); ok {
+			consW, consH := devices.activeConsole.Dimensions(console.Pixels)
+
+			// Check boot cmdline for a font request
+			var selFont *font.Font
+			for k, v := range multiboot.GetBootCmdLine() {
+				if k != "consoleFont" {
+					continue
+				}
+
+				if selFont = font.FindByName(v); selFont != nil {
+					break
+				}
+			}
+
+			if selFont == nil {
+				selFont = font.BestFit(consW, consH)
+			}
+
+			fontSetter.SetFont(selFont)
+		}
 	}
 
 	ttys := probe(tty.ProbeFuncs)
