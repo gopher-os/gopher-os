@@ -16,9 +16,11 @@ import (
 )
 
 type VesaFbConsole struct {
-	bpp        uint32
-	fbPhysAddr uintptr
-	fb         []uint8
+	bpp           uint32
+	bytesPerPixel uint32
+	fbPhysAddr    uintptr
+	fb            []uint8
+	colorInfo     *multiboot.FramebufferRGBColorInfo
 
 	// Console dimensions in pixels
 	width  uint32
@@ -43,13 +45,15 @@ type VesaFbConsole struct {
 	clearChar uint16
 }
 
-func NewVesaFbConsole(width, height uint32, bpp uint8, pitch uint32, fbPhysAddr uintptr) *VesaFbConsole {
+func NewVesaFbConsole(width, height uint32, bpp uint8, pitch uint32, colorInfo *multiboot.FramebufferRGBColorInfo, fbPhysAddr uintptr) *VesaFbConsole {
 	return &VesaFbConsole{
-		bpp:        uint32(bpp),
-		fbPhysAddr: fbPhysAddr,
-		width:      width,
-		height:     height,
-		pitch:      pitch,
+		bpp:           uint32(bpp),
+		bytesPerPixel: uint32(bpp+1) >> 3,
+		fbPhysAddr:    fbPhysAddr,
+		colorInfo:     colorInfo,
+		width:         width,
+		height:        height,
+		pitch:         pitch,
 		// light gray text on black background
 		defaultFg: 7,
 		defaultBg: 0,
@@ -119,6 +123,8 @@ func (cons *VesaFbConsole) Fill(x, y, width, height uint32, _, bg uint8) {
 	switch cons.bpp {
 	case 8:
 		cons.fill8(pX, pY, pW, pH, bg)
+	case 24, 32:
+		cons.fill24(pX, pY, pW, pH, bg)
 	}
 }
 
@@ -128,6 +134,19 @@ func (cons *VesaFbConsole) fill8(pX, pY, pW, pH uint32, bg uint8) {
 	for ; pH > 0; pH, fbRowOffset = pH-1, fbRowOffset+cons.pitch {
 		for fbOffset := fbRowOffset; fbOffset < fbRowOffset+pW; fbOffset++ {
 			cons.fb[fbOffset] = bg
+		}
+	}
+}
+
+// fill24 implements a fill operation using a 24/32bpp framebuffer.
+func (cons *VesaFbConsole) fill24(pX, pY, pW, pH uint32, bg uint8) {
+	comp := cons.packColor24(bg)
+	fbRowOffset := cons.fbOffset(pX, pY)
+	for ; pH > 0; pH, fbRowOffset = pH-1, fbRowOffset+cons.pitch {
+		for fbOffset := fbRowOffset; fbOffset < fbRowOffset+pW*cons.bytesPerPixel; fbOffset += cons.bytesPerPixel {
+			cons.fb[fbOffset] = comp[0]
+			cons.fb[fbOffset+1] = comp[1]
+			cons.fb[fbOffset+2] = comp[2]
 		}
 	}
 }
@@ -171,10 +190,12 @@ func (cons *VesaFbConsole) Write(ch byte, fg, bg uint8, x, y uint32) {
 	switch cons.bpp {
 	case 8:
 		cons.write8(ch, fg, bg, pX, pY)
+	case 24, 32:
+		cons.write24(ch, fg, bg, pX, pY)
 	}
 }
 
-// write8 writes a charactero using an 8bpp framebuffer.
+// write8 writes a character using an 8bpp framebuffer.
 func (cons *VesaFbConsole) write8(glyphIndex, fg, bg uint8, pX, pY uint32) {
 	var (
 		fontOffset  = uint32(glyphIndex) * cons.font.BytesPerRow * cons.font.GlyphHeight
@@ -207,10 +228,104 @@ func (cons *VesaFbConsole) write8(glyphIndex, fg, bg uint8, pX, pY uint32) {
 	}
 }
 
+// write16 writes a character using a 15/162bpp framebuffer.
+func (cons *VesaFbConsole) write16(glyphIndex, fg, bg uint8, pX, pY uint32) {
+	var (
+		fontOffset  = uint32(glyphIndex) * cons.font.BytesPerRow * cons.font.GlyphHeight
+		fbRowOffset = cons.fbOffset(pX, pY)
+		fbOffset    uint32
+		x, y        uint32
+		mask        uint8
+		fgComp      = cons.packColor16(fg)
+		bgComp      = cons.packColor16(bg)
+	)
+
+	for y = 0; y < cons.font.GlyphHeight; y, fbRowOffset, fontOffset = y+1, fbRowOffset+cons.pitch, fontOffset+1 {
+		fbOffset = fbRowOffset
+		fontRowData := cons.font.Data[fontOffset]
+		mask = 1 << 7
+		for x = 0; x < cons.font.GlyphWidth; x, fbOffset, mask = x+1, fbOffset+cons.bytesPerPixel, mask>>1 {
+			// If mask becomes zero while we are still in this loop
+			// then the font uses > 1 byte per row. We need to
+			// fetch the next byte and reset the mask.
+			if mask == 0 {
+				fontOffset++
+				fontRowData = cons.font.Data[fontOffset]
+				mask = 1 << 7
+			}
+
+			if (fontRowData & mask) != 0 {
+				cons.fb[fbOffset] = fgComp[0]
+				cons.fb[fbOffset+1] = fgComp[1]
+			} else {
+				cons.fb[fbOffset] = bgComp[0]
+				cons.fb[fbOffset+1] = bgComp[1]
+			}
+		}
+	}
+}
+
+// write24 writes a character using a 24/32bpp framebuffer.
+func (cons *VesaFbConsole) write24(glyphIndex, fg, bg uint8, pX, pY uint32) {
+	var (
+		fontOffset  = uint32(glyphIndex) * cons.font.BytesPerRow * cons.font.GlyphHeight
+		fbRowOffset = cons.fbOffset(pX, pY)
+		fbOffset    uint32
+		x, y        uint32
+		mask        uint8
+		fgComp      = cons.packColor24(fg)
+		bgComp      = cons.packColor24(bg)
+	)
+
+	for y = 0; y < cons.font.GlyphHeight; y, fbRowOffset, fontOffset = y+1, fbRowOffset+cons.pitch, fontOffset+1 {
+		fbOffset = fbRowOffset
+		fontRowData := cons.font.Data[fontOffset]
+		mask = 1 << 7
+		for x = 0; x < cons.font.GlyphWidth; x, fbOffset, mask = x+1, fbOffset+cons.bytesPerPixel, mask>>1 {
+			// If mask becomes zero while we are still in this loop
+			// then the font uses > 1 byte per row. We need to
+			// fetch the next byte and reset the mask.
+			if mask == 0 {
+				fontOffset++
+				fontRowData = cons.font.Data[fontOffset]
+				mask = 1 << 7
+			}
+
+			if (fontRowData & mask) != 0 {
+				cons.fb[fbOffset] = fgComp[0]
+				cons.fb[fbOffset+1] = fgComp[1]
+				cons.fb[fbOffset+2] = fgComp[2]
+			} else {
+				cons.fb[fbOffset] = bgComp[0]
+				cons.fb[fbOffset+1] = bgComp[1]
+				cons.fb[fbOffset+2] = bgComp[2]
+			}
+		}
+	}
+}
+
 // fbOffset returns the linear offset into the framebuffer that corresponds to
 // the pixel at (x,y).
 func (cons *VesaFbConsole) fbOffset(x, y uint32) uint32 {
-	return ((y + cons.offsetY) * cons.pitch) + (x * cons.bpp >> 3)
+	return ((y + cons.offsetY) * cons.pitch) + (x * cons.bytesPerPixel)
+}
+
+// packColor24 encodes a palette color into the pixel format required by a
+// 24/32 bpp framebuffer.
+func (cons *VesaFbConsole) packColor24(colorIndex uint8) [3]uint8 {
+	var (
+		c             = cons.palette[colorIndex].(color.RGBA)
+		packed uint32 = 0 |
+			(uint32(c.R>>(8-cons.colorInfo.RedMaskSize)) << cons.colorInfo.RedPosition) |
+			(uint32(c.G>>(8-cons.colorInfo.GreenMaskSize)) << cons.colorInfo.GreenPosition) |
+			(uint32(c.B>>(8-cons.colorInfo.BlueMaskSize)) << cons.colorInfo.BluePosition)
+	)
+
+	return [3]uint8{
+		uint8(packed),
+		uint8(packed >> 8),
+		uint8(packed >> 16),
+	}
 }
 
 // Palette returns the active color palette for this console.
@@ -222,19 +337,49 @@ func (cons *VesaFbConsole) Palette() color.Palette {
 // palette index. Passing a color index greated than the number of
 // supported colors should be a no-op.
 func (cons *VesaFbConsole) SetPaletteColor(index uint8, rgba color.RGBA) {
-	cons.palette[index] = rgba
+	oldColor := cons.palette[index]
 
-	// Only program the DAC when we are in indexed (8bpp) mode
-	if cons.bpp > 8 {
+	if oldColor != nil && oldColor.(color.RGBA) == rgba {
 		return
 	}
 
-	// Load palette entry to the DAC. Each DAC entry is a 6-bit value so
-	// we need to scale the RGB values in the [0-63] range.
-	portWriteByteFn(0x3c8, index)
-	portWriteByteFn(0x3c9, rgba.R>>2)
-	portWriteByteFn(0x3c9, rgba.G>>2)
-	portWriteByteFn(0x3c9, rgba.B>>2)
+	cons.palette[index] = rgba
+
+	switch cons.bpp {
+	case 8:
+		// Load palette entry to the DAC. Each DAC entry is a 6-bit value so
+		// we need to scale the RGB values in the [0-63] range.
+		portWriteByteFn(0x3c8, index)
+		portWriteByteFn(0x3c9, rgba.R>>2)
+		portWriteByteFn(0x3c9, rgba.G>>2)
+		portWriteByteFn(0x3c9, rgba.B>>2)
+	case 24, 32:
+		if oldColor == nil {
+			return
+		}
+
+		cons.replace24(oldColor.(color.RGBA), rgba)
+	}
+}
+
+// replace24 replaces all srcColor values with dstColor using a 24/32bpp
+// framebuffer.
+func (cons *VesaFbConsole) replace24(src, dst color.RGBA) {
+	tmp := cons.palette[0]
+	cons.palette[0] = src
+	srcComp := cons.packColor24(0)
+	cons.palette[0] = dst
+	dstComp := cons.packColor24(0)
+	cons.palette[0] = tmp
+	for fbOffset := uint32(0); fbOffset < uint32(len(cons.fb)); fbOffset += cons.bytesPerPixel {
+		if cons.fb[fbOffset] == srcComp[0] &&
+			cons.fb[fbOffset+1] == srcComp[1] &&
+			cons.fb[fbOffset+2] == srcComp[2] {
+			cons.fb[fbOffset] = dstComp[0]
+			cons.fb[fbOffset+1] = dstComp[1]
+			cons.fb[fbOffset+2] = dstComp[2]
+		}
+	}
 }
 
 // loadDefaultPalette is called during driver initialization to setup the
@@ -262,7 +407,7 @@ func (cons *VesaFbConsole) loadDefaultPalette() {
 		color.RGBA{R: 255, G: 255, B: 255}, /* white */
 	}
 
-	// Load default EFA palette for colors 0-16
+	// Load default EGA palette for colors 0-16
 	var index int
 	for ; index < len(egaPalette); index++ {
 		cons.SetPaletteColor(uint8(index), egaPalette[index])
@@ -305,6 +450,7 @@ func (cons *VesaFbConsole) DriverInit(w io.Writer) *kernel.Error {
 	}))
 
 	kfmt.Fprintf(w, "mapped framebuffer to 0x%x\n", fbPage.Address())
+	kfmt.Fprintf(w, "framebuffer dimensions: %dx%dx%d\n", cons.width, cons.height, cons.bpp)
 
 	cons.loadDefaultPalette()
 
@@ -316,8 +462,13 @@ func probeForVesaFbConsole() device.Driver {
 	var drv device.Driver
 
 	fbInfo := getFramebufferInfoFn()
-	if fbInfo.Type == multiboot.FramebufferTypeIndexed {
-		drv = NewVesaFbConsole(fbInfo.Width, fbInfo.Height, fbInfo.Bpp, fbInfo.Pitch, uintptr(fbInfo.PhysAddr))
+	if fbInfo.Type == multiboot.FramebufferTypeIndexed || fbInfo.Type == multiboot.FramebufferTypeRGB {
+		drv = NewVesaFbConsole(
+			fbInfo.Width, fbInfo.Height,
+			fbInfo.Bpp, fbInfo.Pitch,
+			fbInfo.RGBColorInfo(),
+			uintptr(fbInfo.PhysAddr),
+		)
 	}
 
 	return drv
