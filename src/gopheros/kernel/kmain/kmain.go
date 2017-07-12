@@ -20,18 +20,19 @@ var (
 // allocated by the assembly code.
 //
 // The rt0 code passes the address of the multiboot info payload provided by the
-// bootloader as well as the physical addresses for the kernel start/end.
+// bootloader as well as the physical addresses for the kernel start/end. In
+// addition, the start of the kernel virtual address space is passed to the
+// kernelPageOffset argument.
 //
 // Kmain is not expected to return. If it does, the rt0 code will halt the CPU.
 //
 //go:noinline
-func Kmain(multibootInfoPtr, kernelStart, kernelEnd uintptr) {
+func Kmain(multibootInfoPtr, kernelStart, kernelEnd, kernelPageOffset uintptr) {
 	multiboot.SetInfoPtr(multibootInfoPtr)
 
 	var err *kernel.Error
 	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
 		panic(err)
-	} else if err = vmm.Init(); err != nil {
 		panic(err)
 	} else if err = goruntime.Init(); err != nil {
 		panic(err)
