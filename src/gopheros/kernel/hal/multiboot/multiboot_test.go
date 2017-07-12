@@ -196,9 +196,9 @@ func TestGetBootCmdLine(t *testing.T) {
 func TestGetElfSections(t *testing.T) {
 	SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
 
-	if GetElfSections() != nil {
+	VisitElfSections(func(_ string, _ ElfSectionFlag, _ uintptr, _ uint64) {
 		t.Fatalf("expected GetElfSections() to return nil when no elf sections tag is present")
-	}
+	})
 
 	SetInfoPtr(uintptr(unsafe.Pointer(&multibootInfoTestData[0])))
 
@@ -209,43 +209,45 @@ func TestGetElfSections(t *testing.T) {
 		multibootInfoTestData[1660+i] = b
 	}
 
-	sections := GetElfSections()
+	// There are more sections in the test data but we will only focus on these ones for the test
+	var (
+		expSections = []struct {
+			secName  string
+			expFlags ElfSectionFlag
+		}{
+			{".text", ElfSectionAllocated | ElfSectionExecutable},
+			{".bss", ElfSectionAllocated | ElfSectionWritable},
+			{".noptrbss", ElfSectionAllocated | ElfSectionWritable},
+			{".data", ElfSectionAllocated | ElfSectionWritable},
+			{".rodata", ElfSectionAllocated},
+			{".strtab", 0},
+		}
+		matchedSections int
+	)
 
-	specs := []struct {
-		secName  string
-		expFlags ElfSectionFlag
-	}{
-		{".text", ElfSectionAllocated | ElfSectionExecutable},
-		{".bss", ElfSectionAllocated | ElfSectionWritable},
-		{".noptrbss", ElfSectionAllocated | ElfSectionWritable},
-		{".data", ElfSectionAllocated | ElfSectionWritable},
-		{".rodata", ElfSectionAllocated},
-		{".strtab", 0},
-	}
-
-	for specIndex, spec := range specs {
-		var found *ElfSection
-		for _, sec := range sections {
-			if sec.Name == spec.secName {
-				found = sec
-				break
+	VisitElfSections(func(secName string, secFlags ElfSectionFlag, _ uintptr, secSize uint64) {
+		for secIndex, sec := range expSections {
+			if secName != sec.secName {
+				continue
 			}
-		}
 
-		if found == nil {
-			t.Errorf("[spec %d] missing section %q", specIndex, spec.secName)
-			continue
-		}
+			if secFlags != sec.expFlags {
+				t.Errorf("[section %d] expected section flags to be: 0x%x; got 0x%x", secIndex, sec.expFlags, secFlags)
+				return
+			}
 
-		if found.Flags != spec.expFlags {
-			t.Errorf("[spec %d] expected section flags to be: 0x%x; got 0x%x", specIndex, spec.expFlags, found.Flags)
-		}
-	}
+			if secSize == 0 {
+				t.Errorf("[section %d] expected section size to be > 0", secIndex)
+				return
+			}
 
-	// Second call should return the memoized data
-	sections[0].Name = "foo"
-	if sections2 := GetElfSections(); !reflect.DeepEqual(sections2, sections) {
-		t.Error("expected second call to GetElfSections() to return the memoized section list")
+			matchedSections++
+			return
+		}
+	})
+
+	if exp := len(expSections); matchedSections != exp {
+		t.Fatalf("expected to match %d sections; matched %d", exp, matchedSections)
 	}
 }
 
