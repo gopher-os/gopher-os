@@ -355,6 +355,20 @@ write_string:
 ;------------------------------------------------------------------------------
 bits 64 
 _rt0_64_entry_trampoline:
+	; The currently loaded GDT points to the physical address of gdt0. This
+	; works for now since we identity map the first 8M of the kernel. When
+	; we set up a proper PDT for the VMA address of the kernel, the 0-8M
+	; mapping will be invalid causing a page fault when the CPU tries to
+	; restore the segment registers while returning from the page fault
+	; handler.
+	;
+	; To fix this, we need to update the GDT so it uses the 48-bit virtual 
+	; address of gdt0.
+	mov rax, gdt0_desc
+	mov rbx, gdt0
+	mov qword [rax+2], rbx
+	lgdt [rax]
+
 	mov rsp, stack_top     ; now that paging is enabled we can load the stack 
 			       ; with the virtual address of the allocated stack.
 	
