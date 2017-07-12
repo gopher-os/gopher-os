@@ -15,6 +15,12 @@ import (
 	"unsafe"
 )
 
+// VesaFbConsole is a driver for a console backed by a VESA linear framebuffer.
+// The driver supports framebuffers with depth 8, 15, 16, 24 and 32 bpp. In
+// all framebuffer configurations, the driver exposes a 256-color palette whose
+// entries get mapped to the correct pixel format for the framebuffer.
+//
+// To provide text output, a font needs to be specified via the SetFont method.
 type VesaFbConsole struct {
 	bpp           uint32
 	bytesPerPixel uint32
@@ -45,6 +51,7 @@ type VesaFbConsole struct {
 	clearChar uint16
 }
 
+// NewVesaFbConsole returns a new instance of the vesa framebuffer driver.
 func NewVesaFbConsole(width, height uint32, bpp uint8, pitch uint32, colorInfo *multiboot.FramebufferRGBColorInfo, fbPhysAddr uintptr) *VesaFbConsole {
 	return &VesaFbConsole{
 		bpp:           uint32(bpp),
