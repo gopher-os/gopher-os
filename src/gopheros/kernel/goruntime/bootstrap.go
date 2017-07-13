@@ -51,6 +51,16 @@ func mSysStatInc(*uint64, uintptr)
 //go:linkname initGoPackages main.init
 func initGoPackages()
 
+// Some of the package init functions (e.g reflect.init) call runtime.init
+// which attempts to create a new process and eventually crashes the kernel.
+// Since the kernel does its own initialization, we can safely redirect
+// runtime.init
+// to this empty stub.
+//go:redirect-from runtime.init
+//go:noinline
+func runtimeInit() {
+}
+
 // sysReserve reserves address space without allocating any memory or
 // establishing any page mappings.
 //
@@ -188,6 +198,7 @@ func init() {
 		zeroPtr  = unsafe.Pointer(uintptr(0))
 	)
 
+	runtimeInit()
 	sysReserve(zeroPtr, 0, &reserved)
 	sysMap(zeroPtr, 0, reserved, &stat)
 	sysAlloc(0, &stat)

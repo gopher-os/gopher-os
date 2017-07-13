@@ -51,6 +51,8 @@ _rt0_64_entry:
 	extern _kernel_end
 	extern kernel.Kmain
 	
+	mov rax, PAGE_OFFSET
+	push rax
 	mov rax, _kernel_end - PAGE_OFFSET
 	push rax
 	mov rax, _kernel_start - PAGE_OFFSET

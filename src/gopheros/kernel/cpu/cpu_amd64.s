@@ -19,7 +19,8 @@ TEXT ·FlushTLBEntry(SB),NOSPLIT,$0
 
 TEXT ·SwitchPDT(SB),NOSPLIT,$0
 	// loading CR3 also triggers a TLB flush
-	MOVQ pdtPhysAddr+0(FP), CR3
+	MOVQ pdtPhysAddr+0(FP), AX
+	MOVQ AX, CR3
 	RET
 
 TEXT ·ActivePDT(SB),NOSPLIT,$0

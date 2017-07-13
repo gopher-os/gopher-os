@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
+	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/irq"
 	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
@@ -165,7 +166,7 @@ func TestNonRecoverablePageFault(t *testing.T) {
 	}
 }
 
-func TestGPtHandler(t *testing.T) {
+func TestGPFHandler(t *testing.T) {
 	defer func() {
 		readCR2Fn = cpu.ReadCR2
 	}()
@@ -191,6 +192,9 @@ func TestGPtHandler(t *testing.T) {
 func TestInit(t *testing.T) {
 	defer func() {
 		frameAllocator = nil
+		activePDTFn = cpu.ActivePDT
+		switchPDTFn = cpu.SwitchPDT
+		translateFn = Translate
 		mapTemporaryFn = MapTemporary
 		unmapFn = Unmap
 		handleExceptionWithCodeFn = irq.HandleExceptionWithCode
@@ -198,6 +202,8 @@ func TestInit(t *testing.T) {
 
 	// reserve space for an allocated page
 	reservedPage := make([]byte, mem.PageSize)
+
+	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
 
 	t.Run("success", func(t *testing.T) {
 		// fill page with junk
@@ -209,11 +215,15 @@ func TestInit(t *testing.T) {
 			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
 			return pmm.Frame(addr >> mem.PageShift), nil
 		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
 		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
 
-		if err := Init(); err != nil {
+		if err := Init(0); err != nil {
 			t.Fatal(err)
 		}
 
@@ -225,15 +235,45 @@ func TestInit(t *testing.T) {
 		}
 	})
 
+	t.Run("setupPDT fails", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
+
+		// Allow the PDT allocation to succeed and then return an error when
+		// trying to allocate the blank fram
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			return pmm.InvalidFrame, expErr
+		})
+
+		if err := Init(0); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
 	t.Run("blank page allocation error", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
 
-		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) { return pmm.InvalidFrame, expErr })
+		// Allow the PDT allocation to succeed and then return an error when
+		// trying to allocate the blank fram
+		var allocCount int
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			defer func() { allocCount++ }()
+
+			if allocCount == 0 {
+				addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+				return pmm.Frame(addr >> mem.PageShift), nil
+			}
+
+			return pmm.InvalidFrame, expErr
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
 		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
 
-		if err := Init(); err != expErr {
+		if err := Init(0); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 	})
@@ -245,12 +285,207 @@ func TestInit(t *testing.T) {
 			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
 			return pmm.Frame(addr >> mem.PageShift), nil
 		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), expErr }
 		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
 
-		if err := Init(); err != expErr {
+		if err := Init(0); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 	})
 }
+
+func TestSetupPDTForKernel(t *testing.T) {
+	defer func() {
+		frameAllocator = nil
+		activePDTFn = cpu.ActivePDT
+		switchPDTFn = cpu.SwitchPDT
+		translateFn = Translate
+		mapFn = Map
+		mapTemporaryFn = MapTemporary
+		unmapFn = Unmap
+		earlyReserveLastUsed = tempMappingAddr
+	}()
+
+	// reserve space for an allocated page
+	reservedPage := make([]byte, mem.PageSize)
+
+	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&emptyInfoData[0])))
+
+	t.Run("map kernel sections", func(t *testing.T) {
+		defer func() { visitElfSectionsFn = multiboot.VisitElfSections }()
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
+		translateFn = func(_ uintptr) (uintptr, *kernel.Error) { return 0xbadf00d000, nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		visitElfSectionsFn = func(v multiboot.ElfSectionVisitor) {
+			v(".debug", 0, 0, uint64(mem.PageSize>>1)) // address < VMA; should be ignored
+			v(".text", multiboot.ElfSectionExecutable, 0xbadc0ffee, uint64(mem.PageSize>>1))
+			v(".data", multiboot.ElfSectionWritable, 0xbadc0ffee, uint64(mem.PageSize))
+			v(".rodata", 0, 0xbadc0ffee, uint64(mem.PageSize<<1))
+		}
+		mapCount := 0
+		mapFn = func(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			defer func() { mapCount++ }()
+
+			var expFlags PageTableEntryFlag
+
+			switch mapCount {
+			case 0:
+				expFlags = FlagPresent
+			case 1:
+				expFlags = FlagPresent | FlagNoExecute | FlagRW
+			case 2, 3:
+				expFlags = FlagPresent | FlagNoExecute
+			}
+
+			if (flags & expFlags) != expFlags {
+				t.Errorf("[map call %d] expected flags to be %d; got %d", mapCount, expFlags, flags)
+			}
+
+			return nil
+		}
+
+		if err := setupPDTForKernel(0x123); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 4; mapCount != exp {
+			t.Errorf("expected Map to be called %d times; got %d", exp, mapCount)
+		}
+	})
+
+	t.Run("map of kernel sections fials", func(t *testing.T) {
+		defer func() { visitElfSectionsFn = multiboot.VisitElfSections }()
+		expErr := &kernel.Error{Module: "test", Message: "map failed"}
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
+		translateFn = func(_ uintptr) (uintptr, *kernel.Error) { return 0xbadf00d000, nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		visitElfSectionsFn = func(v multiboot.ElfSectionVisitor) {
+			v(".text", multiboot.ElfSectionExecutable, 0xbadc0ffee, uint64(mem.PageSize>>1))
+		}
+		mapFn = func(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			return expErr
+		}
+
+		if err := setupPDTForKernel(0); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
+	t.Run("copy allocator reservations to PDT", func(t *testing.T) {
+		earlyReserveLastUsed = tempMappingAddr - uintptr(mem.PageSize)
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		switchPDTFn = func(_ uintptr) {}
+		translateFn = func(_ uintptr) (uintptr, *kernel.Error) { return 0xbadf00d000, nil }
+		unmapFn = func(p Page) *kernel.Error { return nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		mapFn = func(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			if exp := PageFromAddress(earlyReserveLastUsed); page != exp {
+				t.Errorf("expected Map to be called with page %d; got %d", exp, page)
+			}
+
+			if exp := pmm.Frame(0xbadf00d000 >> mem.PageShift); frame != exp {
+				t.Errorf("expected Map to be called with frame %d; got %d", exp, frame)
+			}
+
+			if flags&(FlagPresent|FlagRW) != (FlagPresent | FlagRW) {
+				t.Error("expected Map to be called FlagPresent | FlagRW")
+			}
+			return nil
+		}
+
+		if err := setupPDTForKernel(0); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("pdt init fails", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "translate failed"}
+
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr { return 0 }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return 0, expErr }
+
+		if err := setupPDTForKernel(0); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
+	t.Run("translation fails for page in reserved address space", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "translate failed"}
+
+		earlyReserveLastUsed = tempMappingAddr - uintptr(mem.PageSize)
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		translateFn = func(_ uintptr) (uintptr, *kernel.Error) {
+			return 0, expErr
+		}
+
+		if err := setupPDTForKernel(0); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+
+	t.Run("map fails for page in reserved address space", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "map failed"}
+
+		earlyReserveLastUsed = tempMappingAddr - uintptr(mem.PageSize)
+		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+			addr := uintptr(unsafe.Pointer(&reservedPage[0]))
+			return pmm.Frame(addr >> mem.PageShift), nil
+		})
+		activePDTFn = func() uintptr {
+			return uintptr(unsafe.Pointer(&reservedPage[0]))
+		}
+		translateFn = func(_ uintptr) (uintptr, *kernel.Error) { return 0xbadf00d000, nil }
+		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
+		mapFn = func(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error { return expErr }
+
+		if err := setupPDTForKernel(0); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+}
+
+var (
+	emptyInfoData = []byte{
+		0, 0, 0, 0, // size
+		0, 0, 0, 0, // reserved
+		0, 0, 0, 0, // tag with type zero and length zero
+		0, 0, 0, 0,
+	}
+)

@@ -3,10 +3,12 @@ package vmm
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
+	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/irq"
 	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
+	"unsafe"
 )
 
 var (
@@ -18,6 +20,8 @@ var (
 	// inlined by the compiler.
 	handleExceptionWithCodeFn = irq.HandleExceptionWithCode
 	readCR2Fn                 = cpu.ReadCR2
+	translateFn               = Translate
+	visitElfSectionsFn        = multiboot.VisitElfSections
 
 	errUnrecoverableFault = &kernel.Error{Module: "vmm", Message: "page/gpf fault"}
 )
@@ -142,9 +146,13 @@ func reserveZeroedFrame() *kernel.Error {
 	return nil
 }
 
-// Init initializes the vmm system and installs paging-related exception
-// handlers.
-func Init() *kernel.Error {
+// Init initializes the vmm system, creates a granular PDT for the kernel and
+// installs paging-related exception handlers.
+func Init(kernelPageOffset uintptr) *kernel.Error {
+	if err := setupPDTForKernel(kernelPageOffset); err != nil {
+		return err
+	}
+
 	if err := reserveZeroedFrame(); err != nil {
 		return err
 	}
@@ -152,4 +160,93 @@ func Init() *kernel.Error {
 	handleExceptionWithCodeFn(irq.PageFaultException, pageFaultHandler)
 	handleExceptionWithCodeFn(irq.GPFException, generalProtectionFaultHandler)
 	return nil
+}
+
+// setupPDTForKernel queries the multiboot package for the ELF sections that
+// correspond to the loaded kernel image and establishes a new granular PDT for
+// the kernel's VMA using the appropriate flags (e.g. NX for data sections, RW
+// for writable sections e.t.c).
+func setupPDTForKernel(kernelPageOffset uintptr) *kernel.Error {
+	var pdt PageDirectoryTable
+
+	// Allocate frame for the page directory and initialize it
+	pdtFrame, err := frameAllocator()
+	if err != nil {
+		return err
+	}
+
+	if err = pdt.Init(pdtFrame); err != nil {
+		return err
+	}
+
+	// Query the ELF sections of the kernel image and establish mappings
+	// for each one using the appropriate flags
+	pageSizeMinus1 := uint64(mem.PageSize - 1)
+	var visitor = func(_ string, secFlags multiboot.ElfSectionFlag, secAddress uintptr, secSize uint64) {
+		// Bail out if we have encountered an error; also ignore sections
+		// not using the kernel's VMA
+		if err != nil || secAddress < kernelPageOffset {
+			return
+		}
+
+		flags := FlagPresent
+
+		if (secFlags & multiboot.ElfSectionExecutable) == 0 {
+			flags |= FlagNoExecute
+		}
+
+		if (secFlags & multiboot.ElfSectionWritable) != 0 {
+			flags |= FlagRW
+		}
+
+		// We assume that all sections are page-aligned by the linker script
+		curPage := PageFromAddress(secAddress)
+		curFrame := pmm.Frame((secAddress - kernelPageOffset) >> mem.PageShift)
+		endFrame := curFrame + pmm.Frame(((secSize+pageSizeMinus1) & ^pageSizeMinus1)>>mem.PageShift)
+		for ; curFrame < endFrame; curFrame, curPage = curFrame+1, curPage+1 {
+			if err = pdt.Map(curPage, curFrame, flags); err != nil {
+				return
+			}
+		}
+	}
+
+	// Use the noescape hack to prevent the compiler from leaking the visitor
+	// function literal to the heap.
+	visitElfSectionsFn(
+		*(*multiboot.ElfSectionVisitor)(noEscape(unsafe.Pointer(&visitor))),
+	)
+
+	// If an error occurred while maping the ELF sections bail out
+	if err != nil {
+		return err
+	}
+
+	// Ensure that any pages mapped by the memory allocator using
+	// EarlyReserveRegion are copied to the new page directory.
+	for rsvAddr := earlyReserveLastUsed; rsvAddr < tempMappingAddr; rsvAddr += uintptr(mem.PageSize) {
+		page := PageFromAddress(rsvAddr)
+
+		frameAddr, err := translateFn(rsvAddr)
+		if err != nil {
+			return err
+		}
+
+		if err = pdt.Map(page, pmm.Frame(frameAddr>>mem.PageShift), FlagPresent|FlagRW); err != nil {
+			return err
+		}
+	}
+
+	// Activate the new PDT. After this point, the identify mapping for the
+	// physical memory addresses where the kernel is loaded becomes invalid.
+	pdt.Activate()
+
+	return nil
+}
+
+// noEscape hides a pointer from escape analysis. This function is copied over
+// from runtime/stubs.go
+//go:nosplit
+func noEscape(p unsafe.Pointer) unsafe.Pointer {
+	x := uintptr(p)
+	return unsafe.Pointer(x ^ 0)
 }

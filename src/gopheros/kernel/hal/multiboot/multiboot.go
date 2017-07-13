@@ -7,9 +7,8 @@ import (
 )
 
 var (
-	infoData       uintptr
-	cmdLineKV      map[string]string
-	elfSectionList []*ElfSection
+	infoData  uintptr
+	cmdLineKV map[string]string
 )
 
 type tagType uint32
@@ -149,7 +148,7 @@ const (
 // MemRegionVisitor defies a visitor function that gets invoked by VisitMemRegions
 // for each memory region provided by the boot loader. The visitor must return true
 // to continue or false to abort the scan.
-type MemRegionVisitor func(entry *MemoryMapEntry) bool
+type MemRegionVisitor func(*MemoryMapEntry) bool
 
 // MemoryMapEntry describes a memory region entry, namely its physical address,
 // its length and its type.
@@ -230,63 +229,44 @@ const (
 	ElfSectionExecutable
 )
 
-// ElfSection deefines the name, flags and virtual address of an ELF section
-// which is part of the kernel image.
-type ElfSection struct {
-	// The section name.
-	Name string
+// ElfSectionVisitor defies a visitor function that gets invoked by VisitElfSections
+// for rach ELF section that belongs to the loaded kernel image.
+type ElfSectionVisitor func(name string, flags ElfSectionFlag, address uintptr, size uint64)
 
-	// The list of flags associated with this section
-	Flags ElfSectionFlag
-
-	// The virtual address of this section.
-	Address uintptr
-}
-
-// GetElfSections returns a slice of ElfSections for the loaded kernel image.
-func GetElfSections() []*ElfSection {
-	if elfSectionList != nil {
-		return elfSectionList
-	}
-
+// VisitElfSections invokes visitor for each ELF entry that belongs to the
+// loaded kernel image.
+func VisitElfSections(visitor ElfSectionVisitor) {
 	curPtr, size := findTagByType(tagElfSymbols)
 	if size == 0 {
-		return nil
+		return
 	}
 
-	ptrElfSections := (*elfSections)(unsafe.Pointer(curPtr))
-	sectionData := *(*[]elfSection64)(unsafe.Pointer(&reflect.SliceHeader{
-		Len:  int(ptrElfSections.numSections),
-		Cap:  int(ptrElfSections.numSections),
-		Data: uintptr(unsafe.Pointer(&ptrElfSections.sectionData)),
-	}))
-
 	var (
-		strTable = *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-			Len:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
-			Cap:  int(sectionData[ptrElfSections.strtabSectionIndex].size),
-			Data: uintptr(sectionData[ptrElfSections.strtabSectionIndex].address),
-		}))
+		sectionPayload  elfSection64
+		ptrElfSections  = (*elfSections)(unsafe.Pointer(curPtr))
+		secPtr          = uintptr(unsafe.Pointer(&ptrElfSections.sectionData))
+		sizeofSection   = unsafe.Sizeof(sectionPayload)
+		strTableSection = (*elfSection64)(unsafe.Pointer(secPtr + uintptr(ptrElfSections.strtabSectionIndex)*sizeofSection))
+		secName         string
+		secNameHeader   = (*reflect.StringHeader)(unsafe.Pointer(&secName))
 	)
 
-	for _, secData := range sectionData {
+	for secIndex := uint16(0); secIndex < ptrElfSections.numSections; secIndex, secPtr = secIndex+1, secPtr+sizeofSection {
+		secData := (*elfSection64)(unsafe.Pointer(secPtr))
 		if secData.size == 0 {
 			continue
 		}
 
 		// String table entries are C-style NULL-terminated strings
-		end := secData.nameIndex
-		for ; strTable[end] != 0; end++ {
+		end := uintptr(secData.nameIndex)
+		for ; *(*byte)(unsafe.Pointer(uintptr(strTableSection.address) + end)) != 0; end++ {
 		}
 
-		elfSectionList = append(elfSectionList, &ElfSection{
-			Name:    string(strTable[secData.nameIndex:end]),
-			Flags:   ElfSectionFlag(secData.flags),
-			Address: uintptr(secData.address),
-		})
-	}
+		secNameHeader.Len = int(end - uintptr(secData.nameIndex))
+		secNameHeader.Data = uintptr(unsafe.Pointer(uintptr(strTableSection.address) + uintptr(secData.nameIndex)))
 
-	return elfSectionList
+		visitor(secName, ElfSectionFlag(secData.flags), uintptr(secData.address), secData.size)
+	}
 }
 
 // SetInfoPtr updates the internal multiboot information pointer to the given
