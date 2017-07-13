@@ -2,6 +2,7 @@ package console
 
 import (
 	"gopheros/device/video/console/font"
+	"gopheros/device/video/console/logo"
 	"image/color"
 )
 
@@ -67,4 +68,12 @@ type Device interface {
 // SetFont selects a bitmap font to be used by the console.
 type FontSetter interface {
 	SetFont(*font.Font)
+}
+
+// LogoSetter is an interface implemented by console devices that
+// support drawing of logo images.
+//
+// SetLogo selects the logo to be drawn by the console.
+type LogoSetter interface {
+	SetLogo(*logo.Image)
 }

@@ -3,9 +3,10 @@ package logo
 
 import "image/color"
 
-// ConsoleLogo defines the logo used by framebuffer consoles. If set to nil
-// then no logo will be displayed.
-var ConsoleLogo *Image
+var (
+	// The list of available logos.
+	availableLogos []*Image
+)
 
 // Alignment defines the supported horizontal alignments for a console logo.
 type Alignment uint8
@@ -41,4 +42,30 @@ type Image struct {
 	// The logo data comprises of Width*Height bytes where each byte
 	// represents an index in the logo palette.
 	Data []uint8
+}
+
+// BestFit returns the best logo from the available logo list given the
+// specified console dimensions.
+func BestFit(consoleWidth, consoleHeight uint32) *Image {
+	var (
+		best                *Image
+		bestDelta, absDelta uint32
+		threshold           = consoleHeight / 10
+	)
+
+	for _, l := range availableLogos {
+		if l.Height > threshold {
+			absDelta = l.Height - threshold
+		} else {
+			absDelta = threshold - l.Height
+		}
+
+		if best == nil || absDelta < bestDelta {
+			best = l
+			bestDelta = absDelta
+			continue
+		}
+	}
+
+	return best
 }
