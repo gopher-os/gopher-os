@@ -24,14 +24,16 @@ header_start:
 	dd 12   ; size 
 	dd 0x3  ; kernel supports EGA console
 	
-	; Define graphics mode tag 
-	;align 8 ; tags should be 64-bit aligned
-	;dw 5    ; type
-	;dw 0    ; flags
-	;dd 20   ; size 
-	;dd 80   ; width (pixels or chars)
-	;dd 25   ; height (pixels or chars)
-	;dd 0    ; bpp (0 for text mode 
+	; Define graphics mode tag to advise the bootloader that the kernel
+	; supports framebuffer console. Ssetting 0 for width, height and bpp
+	; indicates no particular mode preference.
+	align 8 ; tags should be 64-bit aligned
+	dw 5    ; type
+	dw 0    ; flags
+	dd 20   ; size 
+	dd 0    ; width (pixels or chars)
+	dd 0    ; height (pixels or chars)
+	dd 0    ; bpp (0 for text mode)
 	
 	; According to page 6 of the spec, the tag list is terminated by a tag with 
 	; type 0 and size 8
