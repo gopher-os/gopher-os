@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopheros/device"
 	"gopheros/device/video/console/font"
+	"gopheros/device/video/console/logo"
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
 	"gopheros/kernel/hal/multiboot"
@@ -1595,6 +1596,154 @@ func TestVesaFbPackColor24(t *testing.T) {
 	}
 }
 
+func TestVesaFbSetLogo(t *testing.T) {
+	defer func() {
+		portWriteByteFn = cpu.PortWriteByte
+	}()
+
+	var (
+		consW  uint32 = 4
+		consH  uint32 = 2
+		inpFb8        = []byte{
+			0xaa, 0xaa, 0xaa, 0xaa,
+			0xaa, 0xaa, 0xaa, 0xaa,
+		}
+		inpFb16 = []byte{
+			0xaa, 0xab, 0xaa, 0xab, 0xaa, 0xab, 0xaa, 0xab,
+			0xaa, 0xab, 0xaa, 0xab, 0xaa, 0xab, 0xaa, 0xab,
+		}
+		inpFb24 = []byte{
+			0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac,
+			0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac,
+		}
+		mockLogo = &logo.Image{
+			Width:            2,
+			Height:           2,
+			Align:            logo.AlignLeft,
+			TransparentIndex: 0,
+			Palette: []color.RGBA{
+				color.RGBA{R: 255, G: 0, B: 255},
+				color.RGBA{R: 255, G: 0, B: 128},
+			},
+			Data: []byte{
+				0x0, 0x1,
+				0x1, 0x0,
+			},
+		}
+	)
+
+	specs := []struct {
+		inpFb     []byte
+		bpp       uint8
+		colorInfo *multiboot.FramebufferRGBColorInfo
+		align     logo.Alignment
+		logo      *logo.Image
+		expFb     []byte
+	}{
+		{
+			inpFb8,
+			8,
+			nil,
+			logo.AlignLeft,
+			mockLogo,
+			[]byte{
+				0xfe, 0xff, 0xaa, 0xaa,
+				0xff, 0xfe, 0xaa, 0xaa,
+			},
+		},
+		{
+			inpFb8,
+			8,
+			nil,
+			logo.AlignCenter,
+			mockLogo,
+			[]byte{
+				0xaa, 0xfe, 0xff, 0xaa,
+				0xaa, 0xff, 0xfe, 0xaa,
+			},
+		},
+		{
+			inpFb8,
+			8,
+			nil,
+			logo.AlignRight,
+			mockLogo,
+			[]byte{
+				0xaa, 0xaa, 0xfe, 0xff,
+				0xaa, 0xaa, 0xff, 0xfe,
+			},
+		},
+		{
+			inpFb16,
+			16,
+			// RGB555
+			&multiboot.FramebufferRGBColorInfo{
+				RedPosition:   10,
+				RedMaskSize:   5,
+				GreenPosition: 5,
+				GreenMaskSize: 5,
+				BluePosition:  0,
+				BlueMaskSize:  5,
+			},
+			logo.AlignLeft,
+			mockLogo,
+			[]byte{
+				0x00, 0x00, 0x10, 0x7c, 0xaa, 0xab, 0xaa, 0xab,
+				0x10, 0x7c, 0x00, 0x00, 0xaa, 0xab, 0xaa, 0xab,
+			},
+		},
+		{
+			inpFb24,
+			24,
+			// RGB
+			&multiboot.FramebufferRGBColorInfo{
+				RedPosition:   0,
+				RedMaskSize:   8,
+				GreenPosition: 8,
+				GreenMaskSize: 8,
+				BluePosition:  16,
+				BlueMaskSize:  8,
+			},
+			logo.AlignRight,
+			mockLogo,
+			[]byte{
+				0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0x00, 0x00, 0x00, 0xff, 0x00, 0x80,
+				0xaa, 0xab, 0xac, 0xaa, 0xab, 0xac, 0xff, 0x00, 0x80, 0x00, 0x00, 0x00,
+			},
+		},
+	}
+
+	var ()
+	for specIndex, spec := range specs {
+		portWriteByteFn = func(port uint16, val uint8) {}
+
+		cons := NewVesaFbConsole(consW, consH, spec.bpp, consW*uint32(spec.bpp>>3), spec.colorInfo, 0)
+		cons.fb = make([]byte, len(spec.inpFb))
+		copy(cons.fb, spec.inpFb)
+		cons.palette = make(color.Palette, 256)
+		cons.loadDefaultPalette()
+
+		// Setting a nil logo should be a no-op
+		cons.SetLogo(nil)
+		if !reflect.DeepEqual(spec.inpFb, cons.fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, cons.pitch, spec.expFb, cons.fb),
+			)
+		}
+
+		mockLogo.Align = spec.align
+		cons.SetLogo(mockLogo)
+
+		if !reflect.DeepEqual(spec.expFb, cons.fb) {
+			t.Errorf("[spec %d] unexpected frame buffer contents:\n%s",
+				specIndex,
+				diffFrameBuffer(consW, consH, cons.pitch, spec.expFb, cons.fb),
+			)
+		}
+	}
+}
+
 func dumpFramebuffer(consW, consH, consPitch uint32, fb []byte) string {
 	var buf bytes.Buffer
 
@@ -1602,7 +1751,7 @@ func dumpFramebuffer(consW, consH, consPitch uint32, fb []byte) string {
 		fmt.Fprintf(&buf, "%04d |", y)
 		index := (y * consPitch)
 		for x := uint32(0); x < consPitch; x++ {
-			fmt.Fprintf(&buf, "%d", fb[index+x])
+			fmt.Fprintf(&buf, "%d ", fb[index+x])
 		}
 		fmt.Fprintln(&buf, "|")
 	}
