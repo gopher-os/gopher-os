@@ -33,6 +33,7 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd, kernelPageOffset uintptr) {
 	var err *kernel.Error
 	if err = allocator.Init(kernelStart, kernelEnd); err != nil {
 		panic(err)
+	} else if err = vmm.Init(kernelPageOffset); err != nil {
 		panic(err)
 	} else if err = goruntime.Init(); err != nil {
 		panic(err)
