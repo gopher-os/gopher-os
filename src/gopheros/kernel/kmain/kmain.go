@@ -39,10 +39,13 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd, kernelPageOffset uintptr) {
 		panic(err)
 	}
 
+	// After goruntime.Init returns we can safely use defer
+	defer func() {
+		// Use kfmt.Panic instead of panic to prevent the compiler from
+		// treating kernel.Panic as dead-code and eliminating it.
+		kfmt.Panic(errKmainReturned)
+	}()
+
 	// Detect and initialize hardware
 	hal.DetectHardware()
-
-	// Use kfmt.Panic instead of panic to prevent the compiler from
-	// treating kernel.Panic as dead-code and eliminating it.
-	kfmt.Panic(errKmainReturned)
 }
