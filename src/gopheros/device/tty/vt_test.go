@@ -366,7 +366,7 @@ func newMockConsole(w, h uint32) *mockConsole {
 	}
 }
 
-func (cons *mockConsole) Dimensions() (uint32, uint32) {
+func (cons *mockConsole) Dimensions(_ console.Dimension) (uint32, uint32) {
 	return cons.width, cons.height
 }
 

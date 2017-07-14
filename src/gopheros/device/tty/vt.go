@@ -61,7 +61,7 @@ func (t *VT) AttachTo(cons console.Device) {
 	}
 
 	t.cons = cons
-	t.viewportWidth, t.viewportHeight = cons.Dimensions()
+	t.viewportWidth, t.viewportHeight = cons.Dimensions(console.Characters)
 	t.viewportY = 0
 	t.defaultFg, t.defaultBg = cons.DefaultColors()
 	t.curFg, t.curBg = t.defaultFg, t.defaultBg

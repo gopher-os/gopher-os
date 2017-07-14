@@ -129,13 +129,14 @@ iso:
 
 endif
 
+run: GC_FLAGS += -B
 run: iso
-	qemu-system-$(ARCH) -cdrom $(iso_target) -d int,cpu_reset -no-reboot
+	qemu-system-$(ARCH) -cdrom $(iso_target) -vga std -d int,cpu_reset -no-reboot
 
 # When building gdb target disable optimizations (-N) and inlining (l) of Go code
 gdb: GC_FLAGS += -N -l
 gdb: iso
-	qemu-system-$(ARCH) -M accel=tcg -s -S -cdrom $(iso_target) &
+	qemu-system-$(ARCH) -M accel=tcg -vga std -s -S -cdrom $(iso_target) &
 	sleep 1
 	gdb \
 	    -ex 'add-auto-load-safe-path $(pwd)' \

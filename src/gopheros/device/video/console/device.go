@@ -1,6 +1,10 @@
 package console
 
-import "image/color"
+import (
+	"gopheros/device/video/console/font"
+	"gopheros/device/video/console/logo"
+	"image/color"
+)
 
 // ScrollDir defines a scroll direction.
 type ScrollDir uint8
@@ -11,11 +15,25 @@ const (
 	ScrollDirDown
 )
 
+// Dimension defines the types of dimensions that can be queried off a device.
+type Dimension uint8
+
+const (
+	// Characters describes the number of characters in
+	// the console depending on the currently active
+	// font.
+	Characters Dimension = iota
+
+	// Pixels describes the number of pixels in the console framebuffer.
+	Pixels
+)
+
 // The Device interface is implemented by objects that can function as system
 // consoles.
 type Device interface {
-	// Dimensions returns the width and height of the console in characters.
-	Dimensions() (uint32, uint32)
+	// Pixel returns the width and height of the console
+	// using a particual dimension.
+	Dimensions(Dimension) (uint32, uint32)
 
 	// DefaultColors returns the default foreground and background colors
 	// used by this console.
@@ -42,4 +60,20 @@ type Device interface {
 	// palette index. Passing a color index greated than the number of
 	// supported colors should be a no-op.
 	SetPaletteColor(uint8, color.RGBA)
+}
+
+// FontSetter is an interface implemented by console devices that
+// support loadable bitmap fonts.
+//
+// SetFont selects a bitmap font to be used by the console.
+type FontSetter interface {
+	SetFont(*font.Font)
+}
+
+// LogoSetter is an interface implemented by console devices that
+// support drawing of logo images.
+//
+// SetLogo selects the logo to be drawn by the console.
+type LogoSetter interface {
+	SetLogo(*logo.Image)
 }
