@@ -95,6 +95,7 @@ _rt0_64_setup_go_runtime_structs:
 	; Link m0 to the g0
 	extern runtime.m0
 	mov rbx, runtime.m0
+	mov qword [rbx+GO_M_CURG], rsi     ; m.curg = g0
 	mov qword [rbx+GO_M_G0], rsi       ; m.g0 = g0
 	mov qword [rsi+GO_G_M], rbx        ; g.m = m
 
