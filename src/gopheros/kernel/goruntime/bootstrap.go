@@ -21,6 +21,7 @@ var (
 	typeLinksInitFn      = typeLinksInit
 	itabsInitFn          = itabsInit
 	initGoPackagesFn     = initGoPackages
+	procResizeFn         = procResize
 
 	// A seed for the pseudo-random number generator used by getRandomData
 	prngSeed = 0xdeadc0de
@@ -43,6 +44,9 @@ func mallocInit()
 
 //go:linkname mSysStatInc runtime.mSysStatInc
 func mSysStatInc(*uint64, uintptr)
+
+//go:linkname procResize runtime.procresize
+func procResize(int32) uintptr
 
 // initGoPackages is an alias to main.init which recursively calls the init()
 // methods in all imported packages. Unless this function is called, things like
@@ -184,9 +188,18 @@ func Init() *kernel.Error {
 	typeLinksInitFn() // uses maps, activeModules
 	itabsInitFn()     // uses activeModules
 
+	// Set processor count to 1. This initializes the p pointer in the
+	// currently active m allowing the kernel to register defer functions
+	SetCPUCount(1)
+
 	initGoPackagesFn()
 
 	return nil
+}
+
+// SetCPUCount registers the number of available CPUs with the Go runtime.
+func SetCPUCount(numCPUs int32) {
+	procResizeFn(numCPUs)
 }
 
 func init() {
