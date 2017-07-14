@@ -267,6 +267,7 @@ func TestInit(t *testing.T) {
 		typeLinksInitFn = typeLinksInit
 		itabsInitFn = itabsInit
 		initGoPackagesFn = initGoPackages
+		procResizeFn = procResize
 	}()
 
 	mallocInitFn = func() {}
@@ -275,7 +276,7 @@ func TestInit(t *testing.T) {
 	typeLinksInitFn = func() {}
 	itabsInitFn = func() {}
 	initGoPackagesFn = func() {}
-
+	procResizeFn = func(_ int32) uintptr { return 0 }
 	if err := Init(); err != nil {
 		t.Fatal(t)
 	}
