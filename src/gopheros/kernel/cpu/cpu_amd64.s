@@ -14,7 +14,8 @@ TEXT ·Halt(SB),NOSPLIT,$0
 	RET
 
 TEXT ·FlushTLBEntry(SB),NOSPLIT,$0
-	INVLPG virtAddr+0(FP)
+	MOVQ virtAddr+0(FP), AX
+	INVLPG (AX)
 	RET
 
 TEXT ·SwitchPDT(SB),NOSPLIT,$0
