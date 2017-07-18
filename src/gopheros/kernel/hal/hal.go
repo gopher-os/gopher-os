@@ -9,12 +9,16 @@ import (
 	"gopheros/device/video/console/logo"
 	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
+	"sort"
 )
 
 // managedDevices contains the devices discovered by the HAL.
 type managedDevices struct {
 	activeConsole console.Device
 	activeTTY     tty.Device
+
+	// activeDrivers tracks all initialized device drivers.
+	activeDrivers []device.Driver
 }
 
 var (
@@ -30,70 +34,20 @@ func ActiveTTY() tty.Device {
 // DetectHardware probes for hardware devices and initializes the appropriate
 // drivers.
 func DetectHardware() {
-	consoles := probe(console.ProbeFuncs)
-	if len(consoles) != 0 {
-		devices.activeConsole = consoles[0].(console.Device)
+	// Get driver list and sort by detection priority
+	drivers := device.DriverList()
+	sort.Sort(drivers)
 
-		if logoSetter, ok := (devices.activeConsole).(console.LogoSetter); ok {
-			disableLogo := false
-			for k, v := range multiboot.GetBootCmdLine() {
-				if k == "consoleLogo" && v == "off" {
-					disableLogo = true
-					break
-				}
-			}
-
-			if !disableLogo {
-				consW, consH := devices.activeConsole.Dimensions(console.Pixels)
-				logoSetter.SetLogo(logo.BestFit(consW, consH))
-			}
-		}
-
-		if fontSetter, ok := (devices.activeConsole).(console.FontSetter); ok {
-			consW, consH := devices.activeConsole.Dimensions(console.Pixels)
-
-			// Check boot cmdline for a font request
-			var selFont *font.Font
-			for k, v := range multiboot.GetBootCmdLine() {
-				if k != "consoleFont" {
-					continue
-				}
-
-				if selFont = font.FindByName(v); selFont != nil {
-					break
-				}
-			}
-
-			if selFont == nil {
-				selFont = font.BestFit(consW, consH)
-			}
-
-			fontSetter.SetFont(selFont)
-		}
-	}
-
-	ttys := probe(tty.ProbeFuncs)
-	if len(ttys) != 0 {
-		devices.activeTTY = ttys[0].(tty.Device)
-		devices.activeTTY.AttachTo(devices.activeConsole)
-		kfmt.SetOutputSink(devices.activeTTY)
-
-		// Sync terminal contents with console
-		devices.activeTTY.SetState(tty.StateActive)
-	}
+	probe(drivers)
 }
 
-// probe executes the supplied hw probe functions and attempts to initialize
-// each detected device. The function returns a list of device drivers that
-// were successfully initialized.
-func probe(hwProbeFns []device.ProbeFn) []device.Driver {
-	var (
-		drivers []device.Driver
-		w       = kfmt.PrefixWriter{Sink: kfmt.GetOutputSink()}
-	)
+// probe executes the probe function for each driver and invokes
+// onDriverInit for each successfully initialized driver.
+func probe(driverInfoList device.DriverInfoList) {
+	var w = kfmt.PrefixWriter{Sink: kfmt.GetOutputSink()}
 
-	for _, probeFn := range hwProbeFns {
-		drv := probeFn()
+	for _, info := range driverInfoList {
+		drv := info.Probe()
 		if drv == nil {
 			continue
 		}
@@ -109,8 +63,91 @@ func probe(hwProbeFns []device.ProbeFn) []device.Driver {
 		}
 
 		kfmt.Fprintf(&w, "initialized\n")
-		drivers = append(drivers, drv)
+		onDriverInit(info, drv)
+		devices.activeDrivers = append(devices.activeDrivers, drv)
+	}
+}
+
+// onDriverInit is invoked by probe() whenever a piece of hardware is detected
+// and successfully initialized.
+func onDriverInit(info *device.DriverInfo, drv device.Driver) {
+	switch drvImpl := drv.(type) {
+	case console.Device:
+		onConsoleInit(drvImpl)
+	case tty.Device:
+		if devices.activeTTY != nil {
+			return
+		}
+
+		devices.activeTTY = drvImpl
+		if devices.activeConsole != nil {
+			linkTTYToConsole()
+		}
+	}
+}
+
+// onConsoleInit is invoked whenever a console is initialized. If this is the
+// first found console it automatically becomes the active console. In
+// addition, if the console supports fonts and/or logos this function ensures
+// that they are loaded and attached to the console. Finally, if an active TTY
+// device is present, it will be automatically linked to the first active
+// console via a call to linkTTYToConsole.
+func onConsoleInit(cons console.Device) {
+	if devices.activeConsole != nil {
+		return
 	}
 
-	return drivers
+	devices.activeConsole = cons
+
+	if logoSetter, ok := (devices.activeConsole).(console.LogoSetter); ok {
+		disableLogo := false
+		for k, v := range multiboot.GetBootCmdLine() {
+			if k == "consoleLogo" && v == "off" {
+				disableLogo = true
+				break
+			}
+		}
+
+		if !disableLogo {
+			consW, consH := devices.activeConsole.Dimensions(console.Pixels)
+			logoSetter.SetLogo(logo.BestFit(consW, consH))
+		}
+	}
+
+	if fontSetter, ok := (devices.activeConsole).(console.FontSetter); ok {
+		consW, consH := devices.activeConsole.Dimensions(console.Pixels)
+
+		// Check boot cmdline for a font request
+		var selFont *font.Font
+		for k, v := range multiboot.GetBootCmdLine() {
+			if k != "consoleFont" {
+				continue
+			}
+
+			if selFont = font.FindByName(v); selFont != nil {
+				break
+			}
+		}
+
+		if selFont == nil {
+			selFont = font.BestFit(consW, consH)
+		}
+
+		fontSetter.SetFont(selFont)
+	}
+
+	if devices.activeTTY != nil {
+		linkTTYToConsole()
+	}
+}
+
+// linkTTYToConsole connects the active TTY device to the active console device
+// and syncs their contents.
+func linkTTYToConsole() {
+	devices.activeTTY.AttachTo(devices.activeConsole)
+	kfmt.SetOutputSink(devices.activeTTY)
+
+	// Sync terminal contents with console
+	devices.activeTTY.SetState(tty.StateActive)
+
 }
