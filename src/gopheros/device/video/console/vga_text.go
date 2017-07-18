@@ -236,5 +236,8 @@ func probeForVgaTextConsole() device.Driver {
 }
 
 func init() {
-	ProbeFuncs = append(ProbeFuncs, probeForVgaTextConsole)
+	device.RegisterDriver(&device.DriverInfo{
+		Order: device.DetectOrderEarly,
+		Probe: probeForVgaTextConsole,
+	})
 }

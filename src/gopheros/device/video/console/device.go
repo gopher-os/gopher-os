@@ -3,7 +3,16 @@ package console
 import (
 	"gopheros/device/video/console/font"
 	"gopheros/device/video/console/logo"
+	"gopheros/kernel/cpu"
+	"gopheros/kernel/hal/multiboot"
+	"gopheros/kernel/mem/vmm"
 	"image/color"
+)
+
+var (
+	mapRegionFn          = vmm.MapRegion
+	portWriteByteFn      = cpu.PortWriteByte
+	getFramebufferInfoFn = multiboot.GetFramebufferInfo
 )
 
 // ScrollDir defines a scroll direction.

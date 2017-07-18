@@ -603,5 +603,8 @@ func probeForVesaFbConsole() device.Driver {
 }
 
 func init() {
-	ProbeFuncs = append(ProbeFuncs, probeForVesaFbConsole)
+	device.RegisterDriver(&device.DriverInfo{
+		Order: device.DetectOrderEarly,
+		Probe: probeForVesaFbConsole,
+	})
 }

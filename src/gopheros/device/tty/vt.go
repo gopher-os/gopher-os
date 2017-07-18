@@ -265,5 +265,8 @@ func probeForVT() device.Driver {
 }
 
 func init() {
-	ProbeFuncs = append(ProbeFuncs, probeForVT)
+	device.RegisterDriver(&device.DriverInfo{
+		Order: device.DetectOrderEarly,
+		Probe: probeForVT,
+	})
 }
