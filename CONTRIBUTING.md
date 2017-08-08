@@ -35,7 +35,7 @@ Before submitting a PR make sure:
 - that your code passes all lint checks: `make lint`
 - you provide the appropriate unit-tests to ensure that the coverage does not 
   drop below the existing value (currently 100%). Otherwise, when you submit the 
-  PR, the CI builder ([circle-ci](https://circleci.com)) will flag the build as 
+  PR, the CI builder ([travis-ci](https://travis-ci.org)) will flag the build as 
   broken.
 
 Reaching 100% coverage is quite hard and requires the code to be designed with
