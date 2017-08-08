@@ -34,7 +34,7 @@ The project Makefile will work on both Linux and OSX (using vagrant) targets.
 When running under OSX, the Makefile will ensure that all build-related commands
 actually run inside the vagrant box. The following build targets are
 supported:
-- `kernel`: compile the code into an elf32 binary.
+- `kernel`: compile the code into an elf binary.
 - `iso`: compile the code and build a bootable ISO using grub as the
   bootloader.
 
