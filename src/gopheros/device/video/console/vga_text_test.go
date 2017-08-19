@@ -286,7 +286,7 @@ func TestVgaTextSetPaletteColor(t *testing.T) {
 			val  uint8
 		}{
 			// Values will be normalized in the 0-31 range
-			{0x3c8, 1},
+			{0x3c8, 0x3f},
 			{0x3c9, 63},
 			{0x3c9, 31},
 			{0x3c9, 0},
@@ -303,9 +303,9 @@ func TestVgaTextSetPaletteColor(t *testing.T) {
 		}
 
 		rgba := color.RGBA{R: 255, G: 127, B: 0}
-		cons.SetPaletteColor(1, rgba)
+		cons.SetPaletteColor(15, rgba)
 
-		if got := cons.Palette()[1]; got != rgba {
+		if got := cons.Palette()[15]; got != rgba {
 			t.Errorf("expected color at index 1 to be:\n%v\ngot:\n%v", rgba, got)
 		}
 
