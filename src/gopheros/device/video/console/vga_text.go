@@ -14,6 +14,13 @@ import (
 	"unsafe"
 )
 
+// egaColorIndexToDACEntry is a LUT that maps an EGA color index to the DAC
+// entry used by the VGA hardware when looking up the color.
+var egaColorIndexToDACEntry = []uint8{
+	0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x14, 0x07, 0x38, 0x39, 0x3a, 0x3b,
+	0x3c, 0x3d, 0x3e, 0x3f,
+}
+
 // VgaTextConsole implements an EGA-compatible 80x25 text console using VGA
 // mode 0x3. The console supports the default 16 EGA colors which can be
 // overridden using the SetPaletteColor method.
@@ -183,7 +190,7 @@ func (cons *VgaTextConsole) SetPaletteColor(index uint8, rgba color.RGBA) {
 	// Load palette entry to the DAC. In this mode, colors are specified
 	// using 6-bits for each component; the RGB values need to be converted
 	// to the 0-63 range.
-	portWriteByteFn(0x3c8, index)
+	portWriteByteFn(0x3c8, egaColorIndexToDACEntry[index])
 	portWriteByteFn(0x3c9, rgba.R>>2)
 	portWriteByteFn(0x3c9, rgba.G>>2)
 	portWriteByteFn(0x3c9, rgba.B>>2)
