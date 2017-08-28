@@ -23,3 +23,21 @@ func TestFrameMethods(t *testing.T) {
 		t.Error("expected InvalidFrame.Valid() to return false")
 	}
 }
+
+func TestFrameFromAddress(t *testing.T) {
+	specs := []struct {
+		input    uintptr
+		expFrame Frame
+	}{
+		{0, Frame(0)},
+		{4095, Frame(0)},
+		{4096, Frame(1)},
+		{4123, Frame(1)},
+	}
+
+	for specIndex, spec := range specs {
+		if got := FrameFromAddress(spec.input); got != spec.expFrame {
+			t.Errorf("[spec %d] expected returned frame to be %v; got %v", specIndex, spec.expFrame, got)
+		}
+	}
+}
