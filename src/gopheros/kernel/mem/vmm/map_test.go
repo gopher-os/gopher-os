@@ -164,6 +164,40 @@ func TestMapRegion(t *testing.T) {
 	})
 }
 
+func TestIdentityMapRegion(t *testing.T) {
+	defer func() {
+		mapFn = Map
+	}()
+
+	t.Run("success", func(t *testing.T) {
+		mapCallCount := 0
+		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			mapCallCount++
+			return nil
+		}
+
+		if _, err := IdentityMapRegion(pmm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 2; mapCallCount != exp {
+			t.Errorf("expected Map to be called %d time(s); got %d", exp, mapCallCount)
+		}
+	})
+
+	t.Run("Map fails", func(t *testing.T) {
+		expErr := &kernel.Error{Module: "test", Message: "map failed"}
+
+		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+			return expErr
+		}
+
+		if _, err := IdentityMapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+			t.Fatalf("expected error: %v; got %v", expErr, err)
+		}
+	})
+}
+
 func TestMapTemporaryErrorsAmd64(t *testing.T) {
 	if runtime.GOARCH != "amd64" {
 		t.Skip("test requires amd64 runtime; skipping")
