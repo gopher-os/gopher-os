@@ -24,3 +24,12 @@ func (f Frame) Valid() bool {
 func (f Frame) Address() uintptr {
 	return uintptr(f << mem.PageShift)
 }
+
+// FrameFromAddress returns a Frame that corresponds to
+// the given physical address. This function can handle
+// both page-aligned and not aligned addresses. in the
+// latter case, the input address will be rounded down
+// to the frame that contains it.
+func FrameFromAddress(physAddr uintptr) Frame {
+	return Frame((physAddr & ^(uintptr(mem.PageSize - 1))) >> mem.PageShift)
+}

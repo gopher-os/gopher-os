@@ -10,6 +10,9 @@ import (
 	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
 	"sort"
+
+	// import and register acpi driver
+	_ "gopheros/device/acpi"
 )
 
 // managedDevices contains the devices discovered by the HAL.
@@ -44,7 +47,7 @@ func DetectHardware() {
 // probe executes the probe function for each driver and invokes
 // onDriverInit for each successfully initialized driver.
 func probe(driverInfoList device.DriverInfoList) {
-	var w = kfmt.PrefixWriter{Sink: kfmt.GetOutputSink()}
+	var w kfmt.PrefixWriter
 
 	for _, info := range driverInfoList {
 		drv := info.Probe()
@@ -56,6 +59,7 @@ func probe(driverInfoList device.DriverInfoList) {
 		major, minor, patch := drv.DriverVersion()
 		kfmt.Fprintf(&strBuf, "[hal] %s(%d.%d.%d): ", drv.DriverName(), major, minor, patch)
 		w.Prefix = strBuf.Bytes()
+		w.Sink = kfmt.GetOutputSink()
 
 		if err := drv.DriverInit(&w); err != nil {
 			kfmt.Fprintf(&w, "init failed: %s\n", err.Message)

@@ -130,6 +130,24 @@ func MapRegion(frame pmm.Frame, size mem.Size, flags PageTableEntryFlag) (Page, 
 	return PageFromAddress(startPage), nil
 }
 
+// IdentityMapRegion establishes an identity mapping to the physical memory
+// region which starts at the given frame and ends at frame + pages(size). The
+// size argument is always rounded up to the nearest page boundary.
+// IdentityMapRegion returns back the Page that corresponds to the region
+// start.
+func IdentityMapRegion(startFrame pmm.Frame, size mem.Size, flags PageTableEntryFlag) (Page, *kernel.Error) {
+	startPage := Page(startFrame)
+	pageCount := Page(((size + (mem.PageSize - 1)) & ^(mem.PageSize - 1)) >> mem.PageShift)
+
+	for curPage := startPage; curPage < startPage+pageCount; curPage++ {
+		if err := mapFn(curPage, pmm.Frame(curPage), flags); err != nil {
+			return 0, err
+		}
+	}
+
+	return startPage, nil
+}
+
 // MapTemporary establishes a temporary RW mapping of a physical memory frame
 // to a fixed virtual address overwriting any previous mapping. The temporary
 // mapping mechanism is primarily used by the kernel to access and initialize
