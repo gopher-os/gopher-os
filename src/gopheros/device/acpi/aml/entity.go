@@ -302,6 +302,10 @@ type fieldEntity struct {
 type fieldUnitEntity struct {
 	fieldEntity
 
+	// The connection which this field references.
+	connectionName     string
+	resolvedConnection Entity
+
 	// The region which this field references.
 	regionName     string
 	resolvedRegion *regionEntity
@@ -309,6 +313,13 @@ type fieldUnitEntity struct {
 
 func (ent *fieldUnitEntity) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	var ok bool
+	if ent.connectionName != "" && ent.resolvedConnection == nil {
+		if ent.resolvedConnection = scopeFind(ent.parent, rootNs, ent.connectionName); ent.resolvedConnection == nil {
+			kfmt.Fprintf(errWriter, "[field %s] could not resolve connection reference: %s\n", ent.name, ent.connectionName)
+			return false
+		}
+	}
+
 	if ent.resolvedRegion == nil {
 		if ent.resolvedRegion, ok = scopeFind(ent.parent, rootNs, ent.regionName).(*regionEntity); !ok {
 			kfmt.Fprintf(errWriter, "[field %s] could not resolve referenced region: %s\n", ent.name, ent.regionName)
@@ -326,6 +337,10 @@ func (ent *fieldUnitEntity) Resolve(errWriter io.Writer, rootNs ScopeEntity) boo
 type indexFieldEntity struct {
 	fieldEntity
 
+	// The connection which this field references.
+	connectionName     string
+	resolvedConnection Entity
+
 	indexRegName string
 	indexReg     *fieldUnitEntity
 
@@ -335,6 +350,13 @@ type indexFieldEntity struct {
 
 func (ent *indexFieldEntity) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	var ok bool
+	if ent.connectionName != "" && ent.resolvedConnection == nil {
+		if ent.resolvedConnection = scopeFind(ent.parent, rootNs, ent.connectionName); ent.resolvedConnection == nil {
+			kfmt.Fprintf(errWriter, "[field %s] could not resolve connection reference: %s\n", ent.name, ent.connectionName)
+			return false
+		}
+	}
+
 	if ent.indexReg == nil {
 		if ent.indexReg, ok = scopeFind(ent.parent, rootNs, ent.indexRegName).(*fieldUnitEntity); !ok {
 			kfmt.Fprintf(errWriter, "[indexField %s] could not resolve referenced index register: %s\n", ent.name, ent.indexRegName)
@@ -363,7 +385,7 @@ type namedReference struct {
 
 func (ref *namedReference) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	if ref.target = scopeFind(ref.parent, rootNs, ref.targetName); ref.target == nil {
-		kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s\n", ref.targetName)
+		kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
 		return false
 	}
 
@@ -397,3 +419,39 @@ type Device struct {
 }
 
 func (d *Device) getOpcode() opcode { return opDevice }
+
+// mutexEntity represents a named mutex object
+type mutexEntity struct {
+	parent ScopeEntity
+
+	// isGlobal is set to true for the pre-defined global mutex (\_GL object)
+	isGlobal bool
+
+	name      string
+	syncLevel uint8
+}
+
+func (ent *mutexEntity) getOpcode() opcode            { return opMutex }
+func (ent *mutexEntity) setOpcode(op opcode)          {}
+func (ent *mutexEntity) Name() string                 { return ent.name }
+func (ent *mutexEntity) Parent() ScopeEntity          { return ent.parent }
+func (ent *mutexEntity) setParent(parent ScopeEntity) { ent.parent = parent }
+func (ent *mutexEntity) getArgs() []interface{}       { return nil }
+func (ent *mutexEntity) setArg(argIndex uint8, arg interface{}) bool {
+	// arg 0 is the mutex name
+	if argIndex == 0 {
+		var ok bool
+		ent.name, ok = arg.(string)
+		return ok
+	}
+
+	// arg1 is the sync level (bits 0:3)
+	syncLevel, ok := arg.(uint64)
+	ent.syncLevel = uint8(syncLevel) & 0xf
+	return ok
+}
+
+// eventEntity represents a named ACPI sync event.
+type eventEntity struct {
+	namedEntity
+}

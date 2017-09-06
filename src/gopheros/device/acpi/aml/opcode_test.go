@@ -156,6 +156,7 @@ func TestOpArgFlagToString(t *testing.T) {
 // not yet been mapped via an opcode table. This test will be removed once all
 // opcodes are supported.
 func TestFindUnmappedOpcodes(t *testing.T) {
+	//t.SkipNow()
 	for opIndex, opRef := range opcodeMap {
 		if opRef != badOpcode {
 			continue
@@ -170,14 +171,15 @@ func TestFindUnmappedOpcodes(t *testing.T) {
 	}
 
 	for opIndex, opRef := range extendedOpcodeMap {
-		if opRef != badOpcode {
+		// 0xff (opOnes) is defined in opcodeTable
+		if opRef != badOpcode || opIndex == 0 {
 			continue
 		}
 
 		opIndex += 0xff
 		for tabIndex, info := range opcodeTable {
 			if uint16(info.op) == uint16(opIndex) {
-				t.Errorf("set extendedOpcodeMap[0x%02x] = 0x%02x // %s\n", opIndex, tabIndex, info.op.String())
+				t.Errorf("set extendedOpcodeMap[0x%02x] = 0x%02x // %s\n", opIndex-0xff, tabIndex, info.op.String())
 				break
 			}
 		}
