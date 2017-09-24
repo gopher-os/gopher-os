@@ -17,7 +17,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "shell", inline: <<-SHELL
     apt-get update
-    apt-get install -y nasm make xorriso
+    apt-get install -y nasm make xorriso binutils gcc
     [ ! -d "/usr/local/go" ] && wget -qO- https://storage.googleapis.com/golang/go1.8.3.linux-amd64.tar.gz | tar xz -C /usr/local
     mkdir -p /home/vagrant/go/src
     mkdir -p /home/vagrant/go/bin
