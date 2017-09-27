@@ -15,11 +15,12 @@ var (
 
 // Parser implements an AML parser.
 type Parser struct {
-	r          amlStreamReader
-	errWriter  io.Writer
-	root       ScopeEntity
-	scopeStack []ScopeEntity
-	tableName  string
+	r           amlStreamReader
+	errWriter   io.Writer
+	root        ScopeEntity
+	scopeStack  []ScopeEntity
+	tableName   string
+	tableHandle uint8
 }
 
 // NewParser returns a new AML parser instance.
@@ -31,8 +32,10 @@ func NewParser(errWriter io.Writer, rootEntity ScopeEntity) *Parser {
 }
 
 // ParseAML attempts to parse the AML byte-code contained in the supplied ACPI
-// table. The parser emits any encountered errors to the specified errWriter.
-func (p *Parser) ParseAML(tableName string, header *table.SDTHeader) *kernel.Error {
+// table tagging each scoped entity with the supplied table handle. The parser
+// emits any encountered errors to the specified errWriter.
+func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDTHeader) *kernel.Error {
+	p.tableHandle = tableHandle
 	p.tableName = tableName
 	p.r.Init(
 		uintptr(unsafe.Pointer(header)),
@@ -137,13 +140,16 @@ func (p *Parser) parseObj() bool {
 
 // finalizeObj applies post-parse logic for special object types.
 func (p *Parser) finalizeObj(op opcode, obj Entity) bool {
+	obj.setTableHandle(p.tableHandle)
+
 	switch op {
 	case opElse:
 		// If this is an else block we need to append it as an argument to the
 		// If block
 		// Pop Else block of the current scope
-		p.scopeCurrent().removeLastChild()
-		prevObj := p.scopeCurrent().lastChild()
+		curScope := p.scopeCurrent()
+		curScope.removeChild(curScope.lastChild())
+		prevObj := curScope.lastChild()
 		if prevObj.getOpcode() != opIf {
 			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] encountered else block without a matching if block\n", p.tableName, p.r.Offset())
 			return false
@@ -203,7 +209,7 @@ func (p *Parser) parseScope(maxReadOffset uint32) bool {
 }
 
 // parseNamespacedObj reads a scope target name from the AML bytestream,
-// attaches the a device or method (depending on the opcode) object to the
+// attaches the device or method (depending on the opcode) object to the
 // correct parent scope, enters the device scope and parses the object list
 // contained in the device definition.
 func (p *Parser) parseNamespacedObj(op opcode, maxReadOffset uint32) bool {
@@ -312,7 +318,10 @@ func (p *Parser) parseArgObj() (Entity, bool) {
 		return nil, false
 	}
 
-	return p.scopeCurrent().removeLastChild(), true
+	curScope := p.scopeCurrent()
+	obj := curScope.lastChild()
+	curScope.removeChild(obj)
+	return obj, true
 }
 
 func (p *Parser) makeObjForOpcode(info *opcodeInfo) Entity {
@@ -385,7 +394,8 @@ func (p *Parser) parseMethodInvocationOrNameRef() bool {
 				// It may be a nested invocation or named ref
 				ok = p.parseMethodInvocationOrNameRef()
 				if ok {
-					arg = p.scopeCurrent().removeLastChild()
+					arg = p.scopeCurrent().lastChild()
+					p.scopeCurrent().removeChild(arg)
 				}
 			}
 
@@ -599,8 +609,9 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 				p.scopeCurrent().Append(&fieldUnitEntity{
 					fieldEntity: fieldEntity{
 						namedEntity: namedEntity{
-							op:   op,
-							name: unitName,
+							tableHandle: p.tableHandle,
+							op:          op,
+							name:        unitName,
 						},
 						bitOffset:    curBitOffset,
 						bitWidth:     bitWidth,
@@ -618,8 +629,9 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 				p.scopeCurrent().Append(&indexFieldEntity{
 					fieldEntity: fieldEntity{
 						namedEntity: namedEntity{
-							op:   op,
-							name: unitName,
+							tableHandle: p.tableHandle,
+							op:          op,
+							name:        unitName,
 						},
 						bitOffset:    curBitOffset,
 						bitWidth:     bitWidth,
@@ -822,7 +834,9 @@ func (p *Parser) parseTarget() (interface{}, bool) {
 
 	// In this case, this is either a NameString or a control method invocation.
 	if ok := p.parseMethodInvocationOrNameRef(); ok {
-		return p.scopeCurrent().removeLastChild(), ok
+		obj := p.scopeCurrent().lastChild()
+		p.scopeCurrent().removeChild(obj)
+		return obj, ok
 	}
 
 	return nil, false
