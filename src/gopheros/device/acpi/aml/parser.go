@@ -231,8 +231,8 @@ func (p *Parser) parseNamespacedObj(op opcode, maxReadOffset uint32) bool {
 	case opMethod:
 		m := &Method{scopeEntity: scopeEntity{name: name}}
 
-		flags, ok := p.parseNumConstant(1)
-		if !ok {
+		flags, flagOk := p.parseNumConstant(1)
+		if !flagOk {
 			return false
 		}
 		m.argCount = (uint8(flags) & 0x7)           // bits[0:2]
@@ -281,7 +281,7 @@ func (p *Parser) parseArg(info *opcodeInfo, obj Entity, argIndex uint8, argType 
 		// If object is a scoped entity enter it's scope before parsing
 		// the term list. Otherwise, create an unnamed scope, attach it
 		// as the next argument to obj and enter that.
-		if s, ok := obj.(ScopeEntity); ok {
+		if s, isScopeEnt := obj.(ScopeEntity); isScopeEnt {
 			p.scopeEnter(s)
 		} else {
 			ns := &scopeEntity{op: opScope}
@@ -328,8 +328,6 @@ func (p *Parser) makeObjForOpcode(info *opcodeInfo) Entity {
 	var obj Entity
 
 	switch {
-	case info.objType == objTypeLocalScope:
-		obj = new(scopeEntity)
 	case info.op == opOpRegion:
 		obj = new(regionEntity)
 	case info.op == opBuffer:
@@ -479,7 +477,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 	switch op {
 	case opField: // Field := PkgLength Region AccessFlags FieldList
 		if len(args) != 2 {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unsupported opcode [0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
+			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d, opcode 0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
 			return false
 		}
 
@@ -494,7 +492,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 		}
 	case opIndexField: // Field := PkgLength IndexFieldName DataFieldName AccessFlags FieldList
 		if len(args) != 3 {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unsupported opcode [0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
+			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d, opcode 0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
 			return false
 		}
 
@@ -524,7 +522,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 		resolvedConnection Entity
 	)
 
-	for p.r.Offset() < maxReadOffset && !p.r.EOF() {
+	for p.r.Offset() < maxReadOffset {
 		next, err := p.r.ReadByte()
 		if err != nil {
 			return false
@@ -818,11 +816,10 @@ func (p *Parser) parseTarget() (interface{}, bool) {
 
 	if ok {
 		switch {
-		case nextOpcode.op == opZero: // this is actuall a NullName
+		case nextOpcode.op == opZero: // this is actually a NullName
 			p.r.SetOffset(curOffset + 1)
 			return &constEntity{op: opStringPrefix, val: ""}, true
-		case opIsArg(nextOpcode.op): // ArgObj | LocalObj
-		case nextOpcode.op == opRefOf || nextOpcode.op == opDerefOf || nextOpcode.op == opIndex || nextOpcode.op == opDebug: // Type6 | DebugObj
+		case opIsArg(nextOpcode.op) || nextOpcode.op == opRefOf || nextOpcode.op == opDerefOf || nextOpcode.op == opIndex || nextOpcode.op == opDebug: // LocalObj | ArgObj | Type6 | DebugObj
 		default:
 			// Unexpected opcode
 			return nil, false
@@ -863,6 +860,7 @@ func (p *Parser) parseNameString() (string, bool) {
 		p.r.ReadByte()
 	case '^': // PrefixPath := Nothing | '^' PrefixPath
 		str = append(str, next)
+		p.r.ReadByte()
 		for {
 			next, err = p.r.PeekByte()
 			if err != nil {
@@ -880,6 +878,9 @@ func (p *Parser) parseNameString() (string, bool) {
 
 	// NamePath := NameSeg | DualNamePath | MultiNamePath | NullName
 	next, err = p.r.ReadByte()
+	if err != nil {
+		return "", false
+	}
 	var readCount int
 	switch next {
 	case 0x00: // NullName

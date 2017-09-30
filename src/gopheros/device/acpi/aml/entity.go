@@ -405,12 +405,15 @@ type namedReference struct {
 }
 
 func (ref *namedReference) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
-	if ref.target = scopeFind(ref.parent, rootNs, ref.targetName); ref.target == nil {
-		kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
-		return false
+	if ref.target == nil {
+		ref.target = scopeFind(ref.parent, rootNs, ref.targetName)
 	}
 
-	return true
+	if ref.target == nil {
+		kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
+	}
+
+	return ref.target != nil
 }
 
 // methodInvocationEntity describes an AML method invocation.
@@ -467,16 +470,17 @@ func (ent *mutexEntity) Parent() ScopeEntity          { return ent.parent }
 func (ent *mutexEntity) setParent(parent ScopeEntity) { ent.parent = parent }
 func (ent *mutexEntity) getArgs() []interface{}       { return nil }
 func (ent *mutexEntity) setArg(argIndex uint8, arg interface{}) bool {
-	// arg 0 is the mutex name
-	if argIndex == 0 {
-		var ok bool
+	var ok bool
+	switch argIndex {
+	case 0:
+		// arg 0 is the mutex name
 		ent.name, ok = arg.(string)
-		return ok
+	case 1:
+		// arg1 is the sync level (bits 0:3)
+		var syncLevel uint64
+		syncLevel, ok = arg.(uint64)
+		ent.syncLevel = uint8(syncLevel) & 0xf
 	}
-
-	// arg1 is the sync level (bits 0:3)
-	syncLevel, ok := arg.(uint64)
-	ent.syncLevel = uint8(syncLevel) & 0xf
 	return ok
 }
 func (ent *mutexEntity) TableHandle() uint8     { return ent.tableHandle }
