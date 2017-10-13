@@ -104,6 +104,30 @@ func (vm *VM) Init() *Error {
 	return nil
 }
 
+// Lookup traverses a potentially nested absolute AML path and returns the
+// Entity reachable via that path or nil if the path does not point to a
+// defined Entity.
+func (vm *VM) Lookup(absPath string) Entity {
+	if absPath == "" || absPath[0] != '\\' {
+		return nil
+	}
+
+	// If we just search for `\` return the root namespace
+	if len(absPath) == 1 {
+		return vm.rootNS
+	}
+
+	return scopeFindRelative(vm.rootNS, absPath[1:])
+}
+
+// Visit performs a DFS on the AML namespace tree invoking the visitor for each
+// encountered entity whose type matches entType. Namespace nodes are visited
+// in parent to child order a property which allows the supplied visitor
+// function to signal that it's children should not be visited.
+func (vm *VM) Visit(entType EntityType, visitorFn Visitor) {
+	scopeVisit(0, vm.rootNS, entType, visitorFn)
+}
+
 // defaultACPIScopes constructs a tree of scoped entities that correspond to
 // the predefined scopes contained in the ACPI specification and returns back
 // its root node.
