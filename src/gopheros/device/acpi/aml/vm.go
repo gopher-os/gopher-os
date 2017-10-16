@@ -90,7 +90,6 @@ func (vm *VM) Init() *Error {
 		if header == nil {
 			continue
 		}
-
 		if err := vm.tableParser.ParseAML(uint8(tableHandle+1), tableName, header); err != nil {
 			return &Error{message: err.Module + ": " + err.Error()}
 		}

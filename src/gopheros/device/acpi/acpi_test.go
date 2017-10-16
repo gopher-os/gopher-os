@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -237,6 +238,33 @@ func TestDriverInit(t *testing.T) {
 		}
 	})
 
+	t.Run("AML interpreter init error", func(t *testing.T) {
+		rsdtAddr, _ := genTestRDST(t, acpiRev2Plus)
+		identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+			return vmm.Page(frame), nil
+		}
+
+		drv := &acpiDriver{
+			rsdtAddr: rsdtAddr,
+			useXSDT:  true,
+		}
+
+		// Patch the DSDT with an incomplete extOpPrefix opcode; this
+		// will trigger an error when trying to parse its AML contents
+		drv.enumerateTables(ioutil.Discard)
+		header := drv.LookupTable("DSDT")
+		rawData := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Len:  int(header.Length),
+			Cap:  int(header.Length),
+			Data: uintptr(unsafe.Pointer(header)) + unsafe.Sizeof(table.SDTHeader{}),
+		}))
+		rawData[0] = 0x1b // extOpPrefix
+
+		expErr := "acpi_aml_parser: could not parse AML bytecode"
+		if err := drv.DriverInit(os.Stderr); err == nil || err.Error() != expErr {
+			t.Fatalf("expected to get an AML parse error; got %v", err)
+		}
+	})
 }
 
 func TestEnumerateTables(t *testing.T) {
