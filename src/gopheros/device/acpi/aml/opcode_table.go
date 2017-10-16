@@ -119,6 +119,8 @@ const (
 	opIndexField  = opcode(0xff + 0x86)
 	opBankField   = opcode(0xff + 0x87)
 	opDataRegion  = opcode(0xff + 0x88)
+	//
+	numOpcodes = 0xff + 0x89
 )
 
 // The opcode table contains all opcode-related information that the parser knows.

@@ -24,7 +24,7 @@ const (
 	ctrlFlowTypeFnReturn
 )
 
-// execContext encapsulates
+// execContext holds the AML interpreter state while an AML method executes.
 type execContext struct {
 	localArg  [maxLocalArgs]interface{}
 	methodArg [maxMethodArgs]interface{}
@@ -65,6 +65,8 @@ type VM struct {
 	// whether integers are treated as 32 or 64-bits. The VM memoizes this
 	// value so that it can be used by the data conversion helpers.
 	sizeOfIntInBits int
+
+	jumpTable [numOpcodes]opHandler
 }
 
 // NewVM creates a new AML VM and initializes it with the default scope
@@ -101,6 +103,7 @@ func (vm *VM) Init() *Error {
 		}
 	}
 
+	vm.populateJumpTable()
 	return nil
 }
 
