@@ -94,3 +94,177 @@ func TestVMVisit(t *testing.T) {
 		t.Fatalf("expected visitor to be invoked for %d methods; got %d", expCount, methodCount)
 	}
 }
+
+func TestVMExecBlockControlFlows(t *testing.T) {
+	resolver := &mockResolver{}
+	vm := NewVM(os.Stderr, resolver)
+	if err := vm.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("sequential ctrl flow", func(t *testing.T) {
+		block := &scopeEntity{
+			children: []Entity{
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+			},
+		}
+
+		var instrExecCount int
+		vm.jumpTable[0] = func(ctx *execContext, _ Entity) *Error {
+			instrExecCount++
+			return nil
+		}
+
+		ctx := new(execContext)
+		if err := vm.execBlock(ctx, block); err != nil {
+			t.Fatal(err)
+		}
+
+		if instrExecCount != len(block.Children()) {
+			t.Errorf("expected opcode 0 to be executed %d times; got %d", len(block.Children()), instrExecCount)
+		}
+
+		if ctx.ctrlFlow != ctrlFlowTypeNextOpcode {
+			t.Errorf("expected ctx.ctrlFlow to be %d; got %d", ctrlFlowTypeNextOpcode, ctx.ctrlFlow)
+		}
+	})
+
+	t.Run("break ctrl flow", func(t *testing.T) {
+		block := &scopeEntity{
+			children: []Entity{
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				// These instructions will not be executed due to the break
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+			},
+		}
+
+		var instrExecCount int
+
+		vm.jumpTable[0] = func(ctx *execContext, _ Entity) *Error {
+			instrExecCount++
+
+			// Break out of "loop" after the 2nd instruction
+			if instrExecCount == 2 {
+				ctx.ctrlFlow = ctrlFlowTypeBreak
+			}
+			return nil
+		}
+
+		ctx := new(execContext)
+		if err := vm.execBlock(ctx, block); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 2; instrExecCount != exp {
+			t.Errorf("expected opcode 0 to be executed %d times; got %d", exp, instrExecCount)
+		}
+
+		if ctx.ctrlFlow != ctrlFlowTypeBreak {
+			t.Errorf("expected ctx.ctrlFlow to be %d; got %d", ctrlFlowTypeBreak, ctx.ctrlFlow)
+		}
+	})
+
+	t.Run("continue ctrl flow", func(t *testing.T) {
+		block := &scopeEntity{
+			children: []Entity{
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				// These commands will not be executed
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+			},
+		}
+
+		var instrExecCount int
+
+		vm.jumpTable[0] = func(ctx *execContext, _ Entity) *Error {
+			instrExecCount++
+
+			// Continue out of "loop" after the 5th instruction run
+			if instrExecCount == 5 {
+				ctx.ctrlFlow = ctrlFlowTypeContinue
+			}
+			return nil
+		}
+
+		ctx := new(execContext)
+		if err := vm.execBlock(ctx, block); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 5; instrExecCount != exp {
+			t.Errorf("expected opcode 0 to be executed %d times; got %d", exp, instrExecCount)
+		}
+
+		if ctx.ctrlFlow != ctrlFlowTypeContinue {
+			t.Errorf("expected ctx.ctrlFlow to be %d; got %d", ctrlFlowTypeContinue, ctx.ctrlFlow)
+		}
+	})
+
+	t.Run("return ctrl flow", func(t *testing.T) {
+		block := &scopeEntity{
+			children: []Entity{
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+				&unnamedEntity{op: opcode(0)},
+			},
+		}
+
+		var instrExecCount int
+
+		vm.jumpTable[0] = func(ctx *execContext, _ Entity) *Error {
+			instrExecCount++
+
+			// return after 2nd instruction execution
+			if instrExecCount == 2 {
+				ctx.retVal = "foo"
+				ctx.ctrlFlow = ctrlFlowTypeFnReturn
+			}
+			return nil
+		}
+
+		ctx := new(execContext)
+		if err := vm.execBlock(ctx, block); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := 2; instrExecCount != exp {
+			t.Errorf("expected opcode 0 to be executed %d times; got %d", exp, instrExecCount)
+		}
+
+		if exp := "foo"; ctx.retVal != exp {
+			t.Errorf("expected retVal to be %v; got %v", exp, ctx.retVal)
+		}
+
+		// ctrlFlow should remain FnReturn so we can exit any nested
+		// loops till we reach the invoked function.
+		if ctx.ctrlFlow != ctrlFlowTypeFnReturn {
+			t.Errorf("expected ctx.ctrlFlow to be %d; got %d", ctrlFlowTypeFnReturn, ctx.ctrlFlow)
+		}
+	})
+
+	t.Run("instr exec error", func(t *testing.T) {
+		block := &scopeEntity{
+			children: []Entity{
+				&unnamedEntity{op: opcode(0)},
+			},
+		}
+
+		vm.jumpTable[0] = opExecNotImplemented
+
+		ctx := new(execContext)
+		expErr := &Error{message: "opcode Zero not implemented"}
+		if err := vm.execBlock(ctx, block); err == nil || err.Error() != expErr.Error() {
+			t.Errorf("expected to get error: %v; got: %v", expErr, err)
+		}
+	})
+}
