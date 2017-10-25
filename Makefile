@@ -10,7 +10,10 @@ iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 # If your go is called something else set it on the commandline, like
 # this: make run GO=go1.8
 GO ?= go
-GOPATH := $(GOPATH):$(shell pwd)
+
+# Prepend build path to GOPATH so the compiled packages and linter dependencies 
+# end up inside the build folder
+GOPATH := $(BUILD_ABS_DIR):$(shell pwd):$(GOPATH)
 
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
@@ -163,7 +166,7 @@ clean:
 
 lint: lint-check-deps
 	@echo "[gometalinter] linting sources"
-	@gometalinter.v1 \
+	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 \
 		--disable-all \
 		--enable=deadcode \
 		--enable=errcheck \
@@ -180,11 +183,11 @@ lint: lint-check-deps
 		--exclude 'return value not checked' \
 		--exclude 'possible misuse of unsafe.Pointer' \
 		--exclude 'x \^ 0 always equals x' \
-		./...
+		src/...
 
 lint-check-deps:
 	@GOPATH=$(GOPATH) $(GO) get -u -t gopkg.in/alecthomas/gometalinter.v1
-	@gometalinter.v1 --install >/dev/null
+	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 --install >/dev/null
 
 test:
 	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
