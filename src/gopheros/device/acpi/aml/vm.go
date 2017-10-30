@@ -34,7 +34,8 @@ type execContext struct {
 	ctrlFlow ctrlFlowType
 
 	// retVal holds the return value from a method if ctrlFlow is set to
-	// the value ctrlFlowTypeFnReturn.
+	// the value ctrlFlowTypeFnReturn or the intermediate value of an AML
+	// opcode execution.
 	retVal interface{}
 
 	vm *VM
