@@ -12,6 +12,21 @@ const (
 	maxMethodArgs = 7
 )
 
+var (
+	errNilStoreOperands        = &Error{message: "vmStore: src and/or dst operands are nil"}
+	errInvalidStoreDestination = &Error{message: "vmStore: destination operand is not an AML entity"}
+	errCopyFailed              = &Error{message: "vmCopyObject: copy failed"}
+)
+
+// objRef is a pointer to an argument (local or global) or a named AML object.
+type objRef struct {
+	ref interface{}
+
+	// isArgRef specifies whether this is a reference to a method argument.
+	// Different rules (p.884) apply for this particular type of reference.
+	isArgRef bool
+}
+
 // ctrlFlowType describes the different ways that the control flow can be altered
 // while executing a set of AML opcodes.
 type ctrlFlowType uint8
