@@ -167,7 +167,6 @@ func vmConvert(ctx *execContext, arg interface{}, toType valueType) (interface{}
 			return strconv.FormatUint(argAsInt, 16), nil
 		}
 	}
-
 	return nil, errConversionFailed
 }
 

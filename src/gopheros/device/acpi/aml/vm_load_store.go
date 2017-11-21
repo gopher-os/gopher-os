@@ -19,7 +19,15 @@ func vmLoad(ctx *execContext, arg interface{}) (interface{}, *Error) {
 			case opIsMethodArg(op):
 				arg = ctx.methodArg[op-opArg0]
 			default:
-				return nil, &Error{message: "readArg: unsupported entity type: " + op.String()}
+				// Val may be a nested opcode (e.g Add(Add(1,1), 2))
+				// In this case, try evaluating the opcode and replace arg with the
+				// output value that gets stored stored into ctx.retVal
+				if err := ctx.vm.jumpTable[typ.getOpcode()](ctx, typ); err != nil {
+					err.message = "vmLoad: " + err.message
+					return nil, err
+				}
+
+				arg = ctx.retVal
 			}
 		case bool:
 			// Convert boolean results to ints so they can be used

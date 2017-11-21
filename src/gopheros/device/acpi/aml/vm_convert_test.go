@@ -284,6 +284,13 @@ func TestVMToIntArgs2(t *testing.T) {
 }
 
 func TestVMConvert(t *testing.T) {
+	vm := NewVM(nil, nil)
+	vm.populateJumpTable()
+
+	vm.jumpTable[0] = func(_ *execContext, ent Entity) *Error {
+		return &Error{message: "something went wrong"}
+	}
+
 	specs := []struct {
 		ctx    *execContext
 		in     interface{}
@@ -347,21 +354,20 @@ func TestVMConvert(t *testing.T) {
 			"feedfacedeadc0de",
 			nil,
 		},
-		// vmLoad returns an error
-		{
-			nil,
-			&unnamedEntity{op: opAdd},
-			valueTypeInteger,
-			nil,
-			&Error{message: "readArg: unsupported entity type: " + opAdd.String()},
-		},
-		// unsupported conversion
+		// conversion to unsupported type
 		{
 			nil,
 			uint64(42),
 			valueTypeDevice,
 			nil,
 			errConversionFailed,
+		},
+		{
+			&execContext{vm: vm},
+			&unnamedEntity{op: 0}, // uses our patched jumpTable[0] that always errors
+			valueTypeString,
+			nil,
+			&Error{message: "vmLoad: something went wrong"},
 		},
 	}
 

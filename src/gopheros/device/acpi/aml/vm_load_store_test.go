@@ -6,6 +6,18 @@ import (
 )
 
 func TestVMLoad(t *testing.T) {
+	vm := NewVM(nil, nil)
+	vm.populateJumpTable()
+
+	vm.jumpTable[0] = func(_ *execContext, ent Entity) *Error {
+		return &Error{message: "something went wrong"}
+	}
+
+	vm.jumpTable[1] = func(ctx *execContext, ent Entity) *Error {
+		ctx.retVal = uint64(123)
+		return nil
+	}
+
 	// Use a pointer to ensure that when we dereference an objRef we get
 	// back the same pointer
 	uniqueVal := &execContext{}
@@ -74,12 +86,19 @@ func TestVMLoad(t *testing.T) {
 			aRef,
 			nil,
 		},
-		// Unsupported reads
+		// nested opcode which returns an error
 		{
+			&execContext{vm: vm},
+			&unnamedEntity{op: 0}, // uses our patched jumpTable[0] that always errors
 			nil,
-			&unnamedEntity{op: opBuffer},
+			&Error{message: "vmLoad: something went wrong"},
+		},
+		// nested opcode which does not return an error
+		{
+			&execContext{vm: vm},
+			&unnamedEntity{op: 1}, // uses our patched jumpTable[1]
+			uint64(123),
 			nil,
-			&Error{message: "readArg: unsupported entity type: Buffer"},
 		},
 	}
 

@@ -18,6 +18,7 @@ var (
 	errCopyFailed              = &Error{message: "vmCopyObject: copy failed"}
 	errConversionFailed        = &Error{message: "vmConvert: conversion failed"}
 	errArgIndexOutOfBounds     = &Error{message: "vm: arg index out of bounds"}
+	errDivideByZero            = &Error{message: "vm: division by zero"}
 )
 
 // objRef is a pointer to an argument (local or global) or a named AML object.
