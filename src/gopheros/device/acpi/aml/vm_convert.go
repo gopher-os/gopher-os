@@ -24,7 +24,6 @@ const (
 	valueTypeString
 	valueTypePowerResource
 	valueTypeProcessor
-	valueTypeRawDataBuffer
 	valueTypeThermalZone
 )
 
@@ -63,8 +62,6 @@ func (vt valueType) String() string {
 		return "PowerResource"
 	case valueTypeProcessor:
 		return "Processor"
-	case valueTypeRawDataBuffer:
-		return "RawDataBuffer"
 	case valueTypeThermalZone:
 		return "ThermalZone"
 	default:
@@ -139,7 +136,7 @@ func vmConvert(ctx *execContext, arg interface{}, toType valueType) (interface{}
 			// conversion without error, and a “0x” prefix is not allowed. Conversion of a null
 			// (zero-length) string to an integer is not allowed.
 			if len(argAsStr) == 0 {
-				return nil, errConversionFailed
+				return nil, errConversionFromEmptyString
 			}
 
 			var res = uint64(0)
@@ -167,7 +164,14 @@ func vmConvert(ctx *execContext, arg interface{}, toType valueType) (interface{}
 			return strconv.FormatUint(argAsInt, 16), nil
 		}
 	}
-	return nil, errConversionFailed
+
+	return nil, conversionError(argType, toType)
+}
+
+func conversionError(from, to valueType) *Error {
+	return &Error{
+		message: "vmConvert: conversion from " + from.String() + " to " + to.String() + " is not supported",
+	}
 }
 
 // vmTypeOf returns the type of data stored inside the supplied argument.
@@ -225,7 +229,7 @@ func vmTypeOf(ctx *execContext, arg interface{}) valueType {
 		case uint64, bool:
 			return valueTypeInteger
 		case []byte:
-			return valueTypeRawDataBuffer
+			return valueTypeBuffer
 		default:
 			return valueTypeUninitialized
 		}

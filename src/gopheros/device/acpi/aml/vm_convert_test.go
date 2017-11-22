@@ -23,7 +23,6 @@ func TestValueTypeToString(t *testing.T) {
 		valueTypeString:        "String",
 		valueTypePowerResource: "PowerResource",
 		valueTypeProcessor:     "Processor",
-		valueTypeRawDataBuffer: "RawDataBuffer",
 		valueTypeThermalZone:   "ThermalZone",
 		valueTypeUninitialized: "Uninitialized",
 	}
@@ -153,7 +152,7 @@ func TestVMTypeOf(t *testing.T) {
 		{
 			nil,
 			[]byte("some data"),
-			valueTypeRawDataBuffer,
+			valueTypeBuffer,
 		},
 		{
 			nil,
@@ -199,7 +198,7 @@ func TestVMToIntArg(t *testing.T) {
 			},
 			0,
 			0,
-			errConversionFailed,
+			errConversionFromEmptyString,
 		},
 		{
 			&unnamedEntity{},
@@ -245,7 +244,7 @@ func TestVMToIntArgs2(t *testing.T) {
 			},
 			[2]int{0, 1},
 			[2]uint64{0, 0},
-			errConversionFailed,
+			errConversionFromEmptyString,
 		},
 		{
 			&unnamedEntity{
@@ -253,7 +252,7 @@ func TestVMToIntArgs2(t *testing.T) {
 			},
 			[2]int{0, 1},
 			[2]uint64{0, 0},
-			errConversionFailed,
+			errConversionFromEmptyString,
 		},
 		{
 			&unnamedEntity{},
@@ -344,7 +343,7 @@ func TestVMConvert(t *testing.T) {
 			"",
 			valueTypeInteger,
 			nil,
-			errConversionFailed,
+			errConversionFromEmptyString,
 		},
 		// int -> string
 		{
@@ -360,7 +359,7 @@ func TestVMConvert(t *testing.T) {
 			uint64(42),
 			valueTypeDevice,
 			nil,
-			errConversionFailed,
+			conversionError(valueTypeInteger, valueTypeDevice),
 		},
 		{
 			&execContext{vm: vm},

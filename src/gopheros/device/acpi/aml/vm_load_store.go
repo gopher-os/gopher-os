@@ -18,6 +18,8 @@ func vmLoad(ctx *execContext, arg interface{}) (interface{}, *Error) {
 				arg = ctx.localArg[op-opLocal0]
 			case opIsMethodArg(op):
 				arg = ctx.methodArg[op-opArg0]
+			case op == opBuffer:
+				return typ.(*bufferEntity).data, nil
 			default:
 				// Val may be a nested opcode (e.g Add(Add(1,1), 2))
 				// In this case, try evaluating the opcode and replace arg with the

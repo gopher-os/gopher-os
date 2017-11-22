@@ -13,12 +13,13 @@ const (
 )
 
 var (
-	errNilStoreOperands        = &Error{message: "vmStore: src and/or dst operands are nil"}
-	errInvalidStoreDestination = &Error{message: "vmStore: destination operand is not an AML entity"}
-	errCopyFailed              = &Error{message: "vmCopyObject: copy failed"}
-	errConversionFailed        = &Error{message: "vmConvert: conversion failed"}
-	errArgIndexOutOfBounds     = &Error{message: "vm: arg index out of bounds"}
-	errDivideByZero            = &Error{message: "vm: division by zero"}
+	errNilStoreOperands          = &Error{message: "vmStore: src and/or dst operands are nil"}
+	errInvalidStoreDestination   = &Error{message: "vmStore: destination operand is not an AML entity"}
+	errCopyFailed                = &Error{message: "vmCopyObject: copy failed"}
+	errConversionFromEmptyString = &Error{message: "vmConvert: conversion from String requires a non-empty value"}
+	errArgIndexOutOfBounds       = &Error{message: "vm: arg index out of bounds"}
+	errDivideByZero              = &Error{message: "vm: division by zero"}
+	errInvalidComparisonType     = &Error{message: "vm: logic opcodes can only be applied to Integer, String or Buffer arguments"}
 )
 
 // objRef is a pointer to an argument (local or global) or a named AML object.
@@ -122,7 +123,7 @@ func (vm *VM) Init() *Error {
 	}
 
 	vm.populateJumpTable()
-	return nil
+	return vm.checkEntities()
 }
 
 // Lookup traverses a potentially nested absolute AML path and returns the
@@ -139,6 +140,62 @@ func (vm *VM) Lookup(absPath string) Entity {
 	}
 
 	return scopeFindRelative(vm.rootNS, absPath[1:])
+}
+
+// checkEntities performs a DFS on the entity tree and initializes
+// entities that defer their initialization until an AML interpreter
+// is available.
+func (vm *VM) checkEntities() *Error {
+	var (
+		err *Error
+		ctx = &execContext{vm: vm}
+	)
+
+	vm.Visit(EntityTypeAny, func(_ int, ent Entity) bool {
+		// Stop recursing after the first detected error
+		if err != nil {
+			return false
+		}
+
+		// Peek into named entities that wrap other entities
+		if namedEnt, ok := ent.(*namedEntity); ok {
+			if nestedEnt, ok := namedEnt.args[0].(Entity); ok {
+				ent = nestedEnt
+			}
+		}
+
+		switch typ := ent.(type) {
+		case *Method:
+			// Do not recurse into methods; ath this stage we are only interested in
+			// initializing static entities.
+			return false
+		case *bufferEntity:
+			// According to p.911-912 of the spec:
+			// - if a size is specified but no initializer the VM should allocate
+			//   a buffer of the requested size
+			// - if both a size and initializer are specified but size > len(data)
+			//   then the data needs to be padded with zeroes
+
+			// Evaluate size arg as an integer
+			var size interface{}
+			if size, err = vmConvert(ctx, typ.size, valueTypeInteger); err != nil {
+				return false
+			}
+			sizeAsInt := size.(uint64)
+
+			if typ.data == nil {
+				typ.data = make([]byte, size.(uint64))
+			}
+
+			if dataLen := uint64(len(typ.data)); dataLen < sizeAsInt {
+				typ.data = append(typ.data, make([]byte, sizeAsInt-dataLen)...)
+			}
+		}
+
+		return true
+	})
+
+	return err
 }
 
 // Visit performs a DFS on the AML namespace tree invoking the visitor for each

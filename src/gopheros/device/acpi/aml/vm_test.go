@@ -25,6 +25,7 @@ func TestVMInit(t *testing.T) {
 		}
 
 		expErr := &Error{message: errParsingAML.Module + ": " + errParsingAML.Error()}
+
 		vm := NewVM(os.Stderr, resolver)
 		if err := vm.Init(); !reflect.DeepEqual(err, expErr) {
 			t.Fatalf("expected Init() to return errParsingAML; got %v", err)
@@ -267,4 +268,34 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 			t.Errorf("expected to get error: %v; got: %v", expErr, err)
 		}
 	})
+}
+
+func TestVMCheckEntitiesErrors(t *testing.T) {
+	vm := NewVM(os.Stderr, nil)
+
+	// Add a bogus named buffer entity to the root scope
+	vm.rootNS.Append(
+		&namedEntity{
+			name: "F000",
+			args: []interface{}{
+				&bufferEntity{
+					size: "", // this will cause a errConversionFromEmptyString error
+				},
+			},
+		},
+	)
+
+	// The previous error should prevent this entity from being processed
+	bufEnt := &bufferEntity{
+		size: uint64(16),
+	}
+	vm.rootNS.Append(bufEnt)
+
+	if err := vm.checkEntities(); err != errConversionFromEmptyString {
+		t.Fatalf("expected to get errConversionFromEmptyString; got %v", err)
+	}
+
+	if len(bufEnt.data) != 0 {
+		t.Fatal("expected error to short-circuit the entity check")
+	}
 }

@@ -22,6 +22,24 @@ func (vm *VM) populateJumpTable() {
 	vm.jumpTable[opDivide] = vmOpDivide
 	vm.jumpTable[opMod] = vmOpMod
 
+	vm.jumpTable[opShiftLeft] = vmOpShiftLeft
+	vm.jumpTable[opShiftRight] = vmOpShiftRight
+	vm.jumpTable[opAnd] = vmOpBitwiseAnd
+	vm.jumpTable[opOr] = vmOpBitwiseOr
+	vm.jumpTable[opNand] = vmOpBitwiseNand
+	vm.jumpTable[opNor] = vmOpBitwiseNor
+	vm.jumpTable[opXor] = vmOpBitwiseXor
+	vm.jumpTable[opNot] = vmOpBitwiseNot
+	vm.jumpTable[opFindSetLeftBit] = vmOpFindSetLeftBit
+	vm.jumpTable[opFindSetRightBit] = vmOpFindSetRightBit
+
+	vm.jumpTable[opLnot] = vmOpLogicalNot
+	vm.jumpTable[opLand] = vmOpLogicalAnd
+	vm.jumpTable[opLor] = vmOpLogicalOr
+	vm.jumpTable[opLEqual] = vmOpLogicalEqual
+	vm.jumpTable[opLLess] = vmOpLogicalLess
+	vm.jumpTable[opLGreater] = vmOpLogicalGreater
+
 	// Store-related opcodes
 	vm.jumpTable[opStore] = vmOpStore
 }
