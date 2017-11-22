@@ -180,7 +180,6 @@ lint: lint-check-deps
 		--enable=varcheck \
 		--enable=golint \
 		--deadline 300s \
-		--exclude 'return value not checked' \
 		--exclude 'possible misuse of unsafe.Pointer' \
 		--exclude 'x \^ 0 always equals x' \
 		src/...
