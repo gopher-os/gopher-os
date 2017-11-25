@@ -590,7 +590,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 				accessAttrib = FieldAccessAttribRawProcessBytes
 			}
 		default: // NamedField
-			p.r.UnreadByte()
+			_ = p.r.UnreadByte()
 			if unitName, ok = p.parseNameString(); !ok {
 				return false
 			}
@@ -857,10 +857,10 @@ func (p *Parser) parseNameString() (string, bool) {
 	switch next {
 	case '\\': // RootChar
 		str = append(str, next)
-		p.r.ReadByte()
+		_, _ = p.r.ReadByte()
 	case '^': // PrefixPath := Nothing | '^' PrefixPath
 		str = append(str, next)
-		p.r.ReadByte()
+		_, _ = p.r.ReadByte()
 		for {
 			next, err = p.r.PeekByte()
 			if err != nil {
@@ -872,7 +872,7 @@ func (p *Parser) parseNameString() (string, bool) {
 			}
 
 			str = append(str, next)
-			p.r.ReadByte()
+			_, _ = p.r.ReadByte()
 		}
 	}
 
