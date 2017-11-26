@@ -204,4 +204,36 @@ DefinitionBlock ("vm-testsuite-DSDT.aml", "DSDT", 2, "GOPHER", "GOPHEROS", 0x000
   {
     Return(!Arg0)
   }
+
+  // Flow control ops
+  Method(FL00, 2, NotSerialized)
+  {
+    Local0 = 0
+    Local1 = 0
+    While( Local0 < 8 )
+    {
+      Local0++
+
+      If(Arg1 == "continue"){
+        Continue
+      } ElseIf(Arg1 == "return"){
+        Return(0xbadf00d)
+      }
+
+      If(Arg0 == 42){
+        Local1 += 2
+      } ElseIf(Arg0 == 100){
+        Local1 += 4
+      } Else {
+        Local1++
+      }
+
+      If(Arg1 == "break"){
+        Break
+      }
+    }
+
+    Return(Local1)
+  }
+
 }

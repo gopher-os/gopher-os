@@ -12,6 +12,10 @@ func (vm *VM) populateJumpTable() {
 
 	// Control-flow opcodes
 	vm.jumpTable[opReturn] = vmOpReturn
+	vm.jumpTable[opBreak] = vmOpBreak
+	vm.jumpTable[opContinue] = vmOpContinue
+	vm.jumpTable[opWhile] = vmOpWhile
+	vm.jumpTable[opIf] = vmOpIf
 
 	// ALU opcodes
 	vm.jumpTable[opAdd] = vmOpAdd

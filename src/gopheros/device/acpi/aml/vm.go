@@ -20,6 +20,9 @@ var (
 	errArgIndexOutOfBounds       = &Error{message: "vm: arg index out of bounds"}
 	errDivideByZero              = &Error{message: "vm: division by zero"}
 	errInvalidComparisonType     = &Error{message: "vm: logic opcodes can only be applied to Integer, String or Buffer arguments"}
+	errWhileBodyNotScopedEntity  = &Error{message: "vmOpWHile: Wihile body must be a scoped entity"}
+	errIfBodyNotScopedEntity     = &Error{message: "vmOpIf: If body must be a scoped entity"}
+	errElseBodyNotScopedEntity   = &Error{message: "vmOpIf: Else body must be a scoped entity"}
 )
 
 // objRef is a pointer to an argument (local or global) or a named AML object.
