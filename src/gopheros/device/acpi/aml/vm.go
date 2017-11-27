@@ -16,6 +16,8 @@ var (
 	errNilStoreOperands        = &Error{message: "vmStore: src and/or dst operands are nil"}
 	errInvalidStoreDestination = &Error{message: "vmStore: destination operand is not an AML entity"}
 	errCopyFailed              = &Error{message: "vmCopyObject: copy failed"}
+	errConversionFailed        = &Error{message: "vmConvert: conversion failed"}
+	errArgIndexOutOfBounds     = &Error{message: "vm: arg index out of bounds"}
 )
 
 // objRef is a pointer to an argument (local or global) or a named AML object.

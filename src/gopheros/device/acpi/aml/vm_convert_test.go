@@ -1,6 +1,7 @@
 package aml
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -169,6 +170,211 @@ func TestVMTypeOf(t *testing.T) {
 	for specIndex, spec := range specs {
 		if got := vmTypeOf(spec.ctx, spec.in); got != spec.expType {
 			t.Errorf("[spec %d] expected to get value type %s; got %s", specIndex, spec.expType, got)
+		}
+	}
+}
+
+func TestVMToIntArg(t *testing.T) {
+	ctx := &execContext{
+		vm: &VM{sizeOfIntInBits: 64},
+	}
+
+	specs := []struct {
+		ent      Entity
+		argIndex int
+		expVal   uint64
+		expErr   *Error
+	}{
+		{
+			&unnamedEntity{
+				args: []interface{}{uint64(42)},
+			},
+			0,
+			42,
+			nil,
+		},
+		{
+			&unnamedEntity{
+				args: []interface{}{""},
+			},
+			0,
+			0,
+			errConversionFailed,
+		},
+		{
+			&unnamedEntity{},
+			0,
+			0,
+			errArgIndexOutOfBounds,
+		},
+	}
+
+	for specIndex, spec := range specs {
+		got, err := vmToIntArg(ctx, spec.ent, spec.argIndex)
+		switch {
+		case !reflect.DeepEqual(spec.expErr, err):
+			t.Errorf("[spec %d] expected error: %v; got: %v", specIndex, spec.expErr, err)
+		case got != spec.expVal:
+			t.Errorf("[spec %d] expected to get value %v; got %v", specIndex, spec.expVal, got)
+		}
+	}
+}
+
+func TestVMToIntArgs2(t *testing.T) {
+	ctx := &execContext{
+		vm: &VM{sizeOfIntInBits: 64},
+	}
+
+	specs := []struct {
+		ent      Entity
+		argIndex [2]int
+		expVal   [2]uint64
+		expErr   *Error
+	}{
+		{
+			&unnamedEntity{
+				args: []interface{}{uint64(42), uint64(999)},
+			},
+			[2]int{0, 1},
+			[2]uint64{42, 999},
+			nil,
+		},
+		{
+			&unnamedEntity{
+				args: []interface{}{"", uint64(999)},
+			},
+			[2]int{0, 1},
+			[2]uint64{0, 0},
+			errConversionFailed,
+		},
+		{
+			&unnamedEntity{
+				args: []interface{}{uint64(123), ""},
+			},
+			[2]int{0, 1},
+			[2]uint64{0, 0},
+			errConversionFailed,
+		},
+		{
+			&unnamedEntity{},
+			[2]int{128, 0},
+			[2]uint64{0, 0},
+			errArgIndexOutOfBounds,
+		},
+		{
+			&unnamedEntity{args: []interface{}{uint64(42)}},
+			[2]int{0, 128},
+			[2]uint64{0, 0},
+			errArgIndexOutOfBounds,
+		},
+	}
+
+	for specIndex, spec := range specs {
+		got1, got2, err := vmToIntArgs2(ctx, spec.ent, 0, 1)
+		switch {
+		case !reflect.DeepEqual(spec.expErr, err):
+			t.Errorf("[spec %d] expected error: %v; got: %v", specIndex, spec.expErr, err)
+		case got1 != spec.expVal[0] || got2 != spec.expVal[1]:
+			t.Errorf("[spec %d] expected to get values [%v, %v] ; got [%v, %v]", specIndex,
+				spec.expVal[0], spec.expVal[1],
+				got1, got2,
+			)
+		}
+	}
+}
+
+func TestVMConvert(t *testing.T) {
+	specs := []struct {
+		ctx    *execContext
+		in     interface{}
+		toType valueType
+		expVal interface{}
+		expErr *Error
+	}{
+		// No conversion required
+		{
+			nil,
+			"foo",
+			valueTypeString,
+			"foo",
+			nil,
+		},
+		// string -> int (32-bit mode)
+		{
+			&execContext{
+				vm: &VM{sizeOfIntInBits: 32},
+			},
+			"bAdF00D9",
+			valueTypeInteger,
+			uint64(0xbadf00d9),
+			nil,
+		},
+		// string -> int (64-bit mode)
+		{
+			&execContext{
+				vm: &VM{sizeOfIntInBits: 64},
+			},
+			"feedfaceDEADC0DE-ignored-data",
+			valueTypeInteger,
+			uint64(0xfeedfacedeadc0de),
+			nil,
+		},
+		// string -> int (64-bit mode) ; stop at first non-hex char
+		{
+			&execContext{
+				vm: &VM{sizeOfIntInBits: 64},
+			},
+			"feedGARBAGE",
+			valueTypeInteger,
+			uint64(0xfeed),
+			nil,
+		},
+		// string -> int; empty string should trigger an error
+		{
+			&execContext{
+				vm: &VM{sizeOfIntInBits: 64},
+			},
+			"",
+			valueTypeInteger,
+			nil,
+			errConversionFailed,
+		},
+		// int -> string
+		{
+			nil,
+			uint64(0xfeedfacedeadc0de),
+			valueTypeString,
+			"feedfacedeadc0de",
+			nil,
+		},
+		// vmLoad returns an error
+		{
+			nil,
+			&unnamedEntity{op: opAdd},
+			valueTypeInteger,
+			nil,
+			&Error{message: "readArg: unsupported entity type: " + opAdd.String()},
+		},
+		// unsupported conversion
+		{
+			nil,
+			uint64(42),
+			valueTypeDevice,
+			nil,
+			errConversionFailed,
+		},
+	}
+
+	for specIndex, spec := range specs {
+		got, err := vmConvert(spec.ctx, spec.in, spec.toType)
+		switch {
+		case !reflect.DeepEqual(spec.expErr, err):
+			t.Errorf("[spec %d] expected error: %v; got: %v", specIndex, spec.expErr, err)
+		case got != spec.expVal:
+			t.Errorf("[spec %d] expected to get value %v (type: %v); got %v (type %v)", specIndex,
+				spec.expVal, reflect.TypeOf(spec.expVal),
+				got, reflect.TypeOf(got),
+			)
 		}
 	}
 }
