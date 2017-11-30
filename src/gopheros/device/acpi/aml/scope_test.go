@@ -9,6 +9,9 @@ func TestScopeVisit(t *testing.T) {
 	scopeMap := genTestScopes()
 	root := scopeMap[`\`].(*scopeEntity)
 
+	keepRecursing := func(Entity) bool { return true }
+	stopRecursing := func(Entity) bool { return false }
+
 	// Append special entities under IDE0
 	ide := scopeMap["IDE0"].(*scopeEntity)
 	ide.Append(&Device{})
@@ -26,26 +29,53 @@ func TestScopeVisit(t *testing.T) {
 	ide.Append(&Method{})
 	ide.Append(&Method{})
 	ide.Append(&Method{})
+	ide.Append(&methodInvocationEntity{
+		unnamedEntity: unnamedEntity{
+			args: []interface{}{
+				&constEntity{val: uint64(1)},
+				&constEntity{val: uint64(2)},
+			},
+		},
+	})
 
 	specs := []struct {
-		searchType    EntityType
-		keepRecursing bool
-		wantHits      int
+		searchType      EntityType
+		keepRecursingFn func(Entity) bool
+		wantHits        int
 	}{
-		{EntityTypeAny, true, 21},
-		{EntityTypeAny, false, 1},
-		{EntityTypeDevice, true, 1},
-		{EntityTypeProcessor, true, 2},
-		{EntityTypePowerResource, true, 3},
-		{EntityTypeThermalZone, true, 4},
-		{EntityTypeMethod, true, 5},
+		{EntityTypeAny, keepRecursing, 24},
+		{EntityTypeAny, stopRecursing, 1},
+		{
+			EntityTypeAny,
+			func(ent Entity) bool {
+				// Stop recursing after visiting the methodInvocationEntity
+				_, isInv := ent.(*methodInvocationEntity)
+				return !isInv
+			},
+			22,
+		},
+
+		{
+			EntityTypeAny,
+			func(ent Entity) bool {
+				// Stop recursing after visiting the first constEntity
+				_, isConst := ent.(*constEntity)
+				return !isConst
+			},
+			23,
+		},
+		{EntityTypeDevice, keepRecursing, 1},
+		{EntityTypeProcessor, keepRecursing, 2},
+		{EntityTypePowerResource, keepRecursing, 3},
+		{EntityTypeThermalZone, keepRecursing, 4},
+		{EntityTypeMethod, keepRecursing, 5},
 	}
 
 	for specIndex, spec := range specs {
 		var hits int
 		scopeVisit(0, root, spec.searchType, func(_ int, obj Entity) bool {
 			hits++
-			return spec.keepRecursing
+			return spec.keepRecursingFn(obj)
 		})
 
 		if hits != spec.wantHits {
