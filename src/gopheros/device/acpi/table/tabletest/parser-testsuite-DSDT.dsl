@@ -49,6 +49,8 @@ DefinitionBlock ("parser-testsuite-DSDT.aml", "DSDT", 2, "GOPHER", "GOPHEROS", 0
 
     // Other entity types
     Event(HLO0)
+    Mutex(MUT0,1)
+    Signal(HLO0)
 
     // Other executable bits
     Method (EXE0, 1, Serialized)
@@ -79,12 +81,10 @@ DefinitionBlock ("parser-testsuite-DSDT.aml", "DSDT", 2, "GOPHER", "GOPHEROS", 0
         Reset(HLO0)
 
         // Mutex support
-        Mutex(MUT0, 1)
         Acquire(MUT0, 0xffff) // no timeout
         Release(MUT0)
 
         // Signal/Wait
-        Signal(HLO0)
         Wait(HLO0, 0xffff)
 
         // Get monotonic timer value

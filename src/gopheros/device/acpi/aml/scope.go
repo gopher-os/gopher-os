@@ -36,12 +36,20 @@ func scopeVisit(depth int, ent Entity, entType EntityType, visitorFn Visitor) bo
 		if !visitorFn(depth, ent) {
 			return false
 		}
+
+		// Visit any args that are also entities
+		for _, arg := range ent.getArgs() {
+			if argEnt, isEnt := arg.(Entity); isEnt && !scopeVisit(depth+1, argEnt, entType, visitorFn) {
+				return false
+			}
+		}
 	}
 
-	// If the entity defines a scope we need to visit the child entities.
-	if scopeEnt, ok := ent.(ScopeEntity); ok {
-		for _, child := range scopeEnt.Children() {
-			scopeVisit(depth+1, child, entType, visitorFn)
+	switch typ := ent.(type) {
+	case ScopeEntity:
+		// If the entity defines a scope we need to visit the child entities.
+		for _, child := range typ.Children() {
+			_ = scopeVisit(depth+1, child, entType, visitorFn)
 		}
 	}
 

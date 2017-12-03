@@ -3,6 +3,7 @@ package aml
 import (
 	"gopheros/device/acpi/table"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -14,6 +15,7 @@ func TestParser(t *testing.T) {
 	specs := [][]string{
 		[]string{"DSDT.aml", "SSDT.aml"},
 		[]string{"parser-testsuite-DSDT.aml"},
+		[]string{"parser-testsuite-fwd-decls-DSDT.aml"},
 	}
 
 	for specIndex, spec := range specs {
@@ -29,7 +31,11 @@ func TestParser(t *testing.T) {
 		rootNS.Append(&scopeEntity{op: opScope, name: `_SI_`}) // System indicators
 		rootNS.Append(&scopeEntity{op: opScope, name: `_TZ_`}) // ACPI 1.0 thermal zone namespace
 
-		p := NewParser(ioutil.Discard, rootNS)
+		// Inject pre-defined OSPM objects
+		rootNS.Append(&constEntity{name: "_OS_", val: "gopheros"})
+		rootNS.Append(&constEntity{name: "_REV", val: uint64(2)})
+
+		p := NewParser(os.Stderr, rootNS)
 
 		for _, tableName := range spec {
 			tableName = strings.Replace(tableName, ".aml", "", -1)
@@ -88,6 +94,30 @@ func TestTableHandleAssignment(t *testing.T) {
 
 	if exp := len(rootNS.Children()) + 1; visitedNodes != exp {
 		t.Errorf("expected to visit %d nodes; visited %d", exp, visitedNodes)
+	}
+}
+
+func TestParserForwardDeclParsing(t *testing.T) {
+	var resolver = mockResolver{
+		tableFiles: []string{"parser-testsuite-fwd-decls-DSDT.aml"},
+	}
+
+	// Create default scopes
+	rootNS := &scopeEntity{op: opScope, name: `\`}
+	rootNS.Append(&scopeEntity{op: opScope, name: `_GPE`}) // General events in GPE register block
+	rootNS.Append(&scopeEntity{op: opScope, name: `_PR_`}) // ACPI 1.0 processor namespace
+	rootNS.Append(&scopeEntity{op: opScope, name: `_SB_`}) // System bus with all device objects
+	rootNS.Append(&scopeEntity{op: opScope, name: `_SI_`}) // System indicators
+	rootNS.Append(&scopeEntity{op: opScope, name: `_TZ_`}) // ACPI 1.0 thermal zone namespace
+
+	p := NewParser(ioutil.Discard, rootNS)
+
+	for _, tableName := range resolver.tableFiles {
+		tableName = strings.Replace(tableName, ".aml", "", -1)
+		if err := p.ParseAML(0, tableName, resolver.LookupTable(tableName)); err != nil {
+			t.Errorf("[%s]: %v", tableName, err)
+			break
+		}
 	}
 }
 
@@ -307,13 +337,12 @@ func TestParserErrorHandling(t *testing.T) {
 		}
 	})
 
-	t.Run("parseMethodInvocationOrNameRef errors", func(t *testing.T) {
+	t.Run("parseNamedRef errors", func(t *testing.T) {
 		t.Run("missing args", func(t *testing.T) {
 			p.root = &scopeEntity{op: opScope, name: `\`}
-			p.root.Append(&Method{
-				scopeEntity: scopeEntity{name: "MTHD"},
-				argCount:    10,
-			})
+			p.methodArgCount = map[string]uint8{
+				"MTHD": 10,
+			}
 
 			mockParserPayload(p, []byte{
 				'M', 'T', 'H', 'D',
@@ -321,8 +350,8 @@ func TestParserErrorHandling(t *testing.T) {
 			})
 
 			p.scopeEnter(p.root)
-			if p.parseMethodInvocationOrNameRef() {
-				t.Fatal("expected parseMethodInvocationOrNameRef to return false")
+			if p.parseNamedRef() {
+				t.Fatal("expected parseNamedRef to return false")
 			}
 		})
 	})
@@ -553,6 +582,77 @@ func TestParserErrorHandling(t *testing.T) {
 				}
 			}
 		})
+	})
+}
+
+func TestDetectMethodDeclarations(t *testing.T) {
+	p := &Parser{
+		errWriter: ioutil.Discard,
+	}
+
+	validMethod := []byte{
+		byte(opMethod),
+		5, // pkgLen
+		'M', 'T', 'H', 'D',
+		2, // flags (2 args)
+	}
+
+	t.Run("success", func(t *testing.T) {
+		mockParserPayload(p, validMethod)
+		p.methodArgCount = make(map[string]uint8)
+		p.detectMethodDeclarations()
+
+		argCount, inMap := p.methodArgCount["MTHD"]
+		if !inMap {
+			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
+		}
+
+		if exp := uint8(2); argCount != exp {
+			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
+		}
+	})
+
+	t.Run("bad pkgLen", func(t *testing.T) {
+		mockParserPayload(p, []byte{
+			byte(opMethod),
+			// lead byte bits (6:7) indicate 1 extra byte that is missing
+			byte(1 << 6),
+		})
+
+		p.methodArgCount = make(map[string]uint8)
+		p.detectMethodDeclarations()
+	})
+
+	t.Run("error parsing namestring", func(t *testing.T) {
+		mockParserPayload(p, append([]byte{
+			byte(opMethod),
+			byte(5), // pkgLen
+			10,      // bogus char, not part of namestring
+		}, validMethod...))
+
+		p.methodArgCount = make(map[string]uint8)
+		p.detectMethodDeclarations()
+
+		argCount, inMap := p.methodArgCount["MTHD"]
+		if !inMap {
+			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
+		}
+
+		if exp := uint8(2); argCount != exp {
+			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
+		}
+	})
+
+	t.Run("error parsing method flags", func(t *testing.T) {
+		mockParserPayload(p, []byte{
+			byte(opMethod),
+			byte(5), // pkgLen
+			'F', 'O', 'O', 'F',
+			// Missing flag byte
+		})
+
+		p.methodArgCount = make(map[string]uint8)
+		p.detectMethodDeclarations()
 	})
 }
 
