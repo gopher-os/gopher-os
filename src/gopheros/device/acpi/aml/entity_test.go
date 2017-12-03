@@ -133,11 +133,41 @@ func TestEntityResolveErrors(t *testing.T) {
 		&indexFieldEntity{connectionName: `\`, indexRegName: `\`, dataRegName: "DAT0"},
 		// Unknown reference
 		&namedReference{unnamedEntity: unnamedEntity{parent: scope}, targetName: "TRG0"},
+		// Unknown method name
+		&methodInvocationEntity{unnamedEntity: unnamedEntity{parent: scope}, methodName: "MTH0"},
 	}
 
 	for specIndex, spec := range specs {
 		if spec.Resolve(ioutil.Discard, scope) {
 			t.Errorf("[spec %d] expected Resolve() to fail", specIndex)
 		}
+	}
+}
+
+func TestMethodInvocationResolver(t *testing.T) {
+	scope := &scopeEntity{name: `\`}
+	scope.Append(&Method{
+		scopeEntity: scopeEntity{
+			name: "MTH0",
+		},
+	})
+
+	validInv := &methodInvocationEntity{
+		methodName: "MTH0",
+	}
+
+	invalidInv := &methodInvocationEntity{
+		methodName: "FOO0",
+	}
+
+	scope.Append(validInv)
+	scope.Append(invalidInv)
+
+	if !validInv.Resolve(ioutil.Discard, scope) {
+		t.Fatal("expected method invocation to resolve method", validInv.methodName)
+	}
+
+	if invalidInv.Resolve(ioutil.Discard, scope) {
+		t.Fatal("expected method invocation NOT to resolve method", invalidInv.methodName)
 	}
 }

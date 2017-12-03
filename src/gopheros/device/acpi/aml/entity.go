@@ -88,10 +88,12 @@ func (ent *namedEntity) setArg(argIndex uint8, arg interface{}) bool {
 func (ent *namedEntity) TableHandle() uint8     { return ent.tableHandle }
 func (ent *namedEntity) setTableHandle(h uint8) { ent.tableHandle = h }
 
-// constEntity is an unnamedEntity which always evaluates to a constant value.
-// Calls to setArg for argument index 0 will memoize the argument value that is
+// constEntity is an optionally-named entity which always
+// evaluates to a constant value.  Calls to setArg for
+// argument index 0 will memoize the argument value that is
 // stored inside this entity.
 type constEntity struct {
+	name        string
 	tableHandle uint8
 	op          opcode
 	args        []interface{}
@@ -114,7 +116,7 @@ func (ent *constEntity) setOpcode(op opcode) {
 		ent.val = uint64(1<<64 - 1)
 	}
 }
-func (ent *constEntity) Name() string                 { return "" }
+func (ent *constEntity) Name() string                 { return ent.name }
 func (ent *constEntity) Parent() ScopeEntity          { return ent.parent }
 func (ent *constEntity) setParent(parent ScopeEntity) { ent.parent = parent }
 func (ent *constEntity) getArgs() []interface{}       { return ent.args }
@@ -406,21 +408,33 @@ type namedReference struct {
 
 func (ref *namedReference) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	if ref.target == nil {
-		ref.target = scopeFind(ref.parent, rootNs, ref.targetName)
+		if ref.target = scopeFind(ref.parent, rootNs, ref.targetName); ref.target == nil {
+			kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
+			return false
+		}
 	}
 
-	if ref.target == nil {
-		kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
-	}
-
-	return ref.target != nil
+	return true
 }
 
 // methodInvocationEntity describes an AML method invocation.
 type methodInvocationEntity struct {
 	unnamedEntity
 
-	methodDef *Method
+	methodName string
+	method     *Method
+}
+
+func (m *methodInvocationEntity) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
+	if m.method == nil {
+		var isMethod bool
+		if m.method, isMethod = scopeFind(m.parent, rootNs, m.methodName).(*Method); !isMethod {
+			kfmt.Fprintf(errWriter, "could not resolve merenced method: %s (parent: %s)\n", m.methodName, m.parent.Name())
+			return false
+		}
+	}
+
+	return true
 }
 
 // Method defines an invocable AML method.
