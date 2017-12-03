@@ -21,13 +21,20 @@ type Parser struct {
 	scopeStack  []ScopeEntity
 	tableName   string
 	tableHandle uint8
+
+	// methodArgCount is initialized in a pre-parse step with the names and expected
+	// number of args for each function declaration. This is required as function
+	// invocations do not employ any mechanism to indicate the number of args that
+	// need to be parsed. Moreover, the spec allows for forward function declarations.
+	methodArgCount map[string]uint8
 }
 
 // NewParser returns a new AML parser instance.
 func NewParser(errWriter io.Writer, rootEntity ScopeEntity) *Parser {
 	return &Parser{
-		errWriter: errWriter,
-		root:      rootEntity,
+		errWriter:      errWriter,
+		root:           rootEntity,
+		methodArgCount: make(map[string]uint8),
 	}
 }
 
@@ -43,7 +50,12 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 		uint32(unsafe.Sizeof(table.SDTHeader{})),
 	)
 
-	// Pass 1: decode bytecode and build entitites
+	// Pass 1: scan bytecode and locate all method declarations. This allows us to
+	// properly parse the arguments to method invocations at pass 2 even if the
+	// the name of the invoked method is a forward reference.
+	p.detectMethodDeclarations()
+
+	// Pass 2: decode bytecode and build entitites
 	p.scopeStack = nil
 	p.scopeEnter(p.root)
 	if !p.parseObjList(header.Length) {
@@ -67,6 +79,57 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	}
 
 	return nil
+}
+
+// detectMethodDeclarations scans the AML byte-stream looking for function
+// declarations.  For each discovered function, the method will parse its flags
+// and update the methodArgCount map with the number of required arguments.
+func (p *Parser) detectMethodDeclarations() {
+	var (
+		next              *opcodeInfo
+		method            string
+		startOffset       = p.r.Offset()
+		curOffset, pkgLen uint32
+		flags             uint64
+		ok                bool
+	)
+
+	for !p.r.EOF() {
+		if next, ok = p.nextOpcode(); !ok {
+			// Skip one byte to the right and try again. Maybe we are stuck inside
+			// the contents of a string or buffer
+			_, _ = p.r.ReadByte()
+			continue
+		}
+
+		if next.op != opMethod {
+			continue
+		}
+
+		// Parse pkg len; if this fails then this is not a method declaration
+		curOffset = p.r.Offset()
+		if pkgLen, ok = p.parsePkgLength(); !ok {
+			continue
+		}
+
+		// Parse method name
+		if method, ok = p.parseNameString(); !ok {
+			continue
+		}
+
+		// The next byte encodes the method flags which also contains the arg count
+		// at bits 0:2
+		if flags, ok = p.parseNumConstant(1); !ok {
+			continue
+		}
+
+		p.methodArgCount[method] = uint8(flags) & 0x7
+
+		// At this point we can use the pkg length to skip over the term list
+		p.r.SetOffset(curOffset + pkgLen)
+	}
+
+	p.r.SetOffset(startOffset)
 }
 
 // parseObjList tries to parse an AML object list. Object lists are usually
