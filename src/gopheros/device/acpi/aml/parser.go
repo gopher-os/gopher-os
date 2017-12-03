@@ -65,12 +65,27 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	}
 	p.scopeExit()
 
-	// Pass 2: resolve forward references
+	// Pass 3: check parents and resolve forward references
 	var resolveFailed bool
 	scopeVisit(0, p.root, EntityTypeAny, func(_ int, ent Entity) bool {
+		// Skip method bodies; their contents will be lazily resolved by the interpreter
+		if _, isMethod := ent.(*Method); isMethod {
+			return false
+		}
+
+		// Populate parents for any entity args that are also entities but are not
+		// linked to a parent (e.g. a package inside a named entity).
+		for _, arg := range ent.getArgs() {
+			if argEnt, isArgEnt := arg.(Entity); isArgEnt && argEnt.Parent() == nil {
+				argEnt.setParent(ent.Parent())
+			}
+		}
+
 		if res, ok := ent.(resolver); ok && !res.Resolve(p.errWriter, p.root) {
 			resolveFailed = true
+			return false
 		}
+
 		return true
 	})
 
@@ -159,7 +174,7 @@ func (p *Parser) parseObj() bool {
 	curOffset = p.r.Offset()
 	if info, ok = p.nextOpcode(); !ok {
 		p.r.SetOffset(curOffset)
-		return p.parseMethodInvocationOrNameRef()
+		return p.parseNamedRef()
 	}
 
 	hasPkgLen := info.flags.is(opFlagHasPkgLen) || info.argFlags.contains(opArgTermList) || info.argFlags.contains(opArgFieldList)
@@ -415,34 +430,29 @@ func (p *Parser) makeObjForOpcode(info *opcodeInfo) Entity {
 	return obj
 }
 
-// parseMethodInvocationOrNameRef attempts to parse a method invocation and its term
-// args. This method first scans the NameString and performs a lookup. If the
-// lookup returns a method definition then we consult it to figure out how many
-// arguments we need to parse.
+// parseNamedRef attempts to parse either a method invocation or a named
+// reference. As AML allows for forward references, the actual contents for
+// this entity will not be known until the entire AML stream has been parsed.
 //
 // Grammar:
 // MethodInvocation := NameString TermArgList
 // TermArgList = Nothing | TermArg TermArgList
 // TermArg = Type2Opcode | DataObject | ArgObj | LocalObj | MethodInvocation
-func (p *Parser) parseMethodInvocationOrNameRef() bool {
-	invocationStartOffset := p.r.Offset()
+func (p *Parser) parseNamedRef() bool {
 	name, ok := p.parseNameString()
 	if !ok {
 		return false
 	}
 
-	// Lookup Name and try matching it to a function definition
-	if methodDef, ok := scopeFind(p.scopeCurrent(), p.root, name).(*Method); ok {
-		var (
-			invocation = &methodInvocationEntity{
-				methodDef: methodDef,
-			}
-			curOffset uint32
-			argIndex  uint8
-			arg       Entity
-		)
+	var (
+		curOffset uint32
+		argIndex  uint8
+		arg       Entity
+		argList   []interface{}
+	)
 
-		for argIndex < methodDef.argCount && !p.r.EOF() {
+	if argCount, isMethod := p.methodArgCount[name]; isMethod {
+		for argIndex < argCount && !p.r.EOF() {
 			// Peek next opcode
 			curOffset = p.r.Offset()
 			nextOpcode, ok := p.nextOpcode()
@@ -453,7 +463,7 @@ func (p *Parser) parseMethodInvocationOrNameRef() bool {
 				arg, ok = p.parseArgObj()
 			default:
 				// It may be a nested invocation or named ref
-				ok = p.parseMethodInvocationOrNameRef()
+				ok = p.parseNamedRef()
 				if ok {
 					arg = p.scopeCurrent().lastChild()
 					p.scopeCurrent().removeChild(arg)
@@ -466,23 +476,24 @@ func (p *Parser) parseMethodInvocationOrNameRef() bool {
 				break
 			}
 
-			invocation.setArg(argIndex, arg)
+			argList = append(argList, arg)
 			argIndex++
 		}
 
-		if argIndex != methodDef.argCount {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] argument mismatch (exp: %d, got %d) for invocation of method: %s\n", p.tableName, invocationStartOffset, methodDef.argCount, argIndex, name)
+		// Check whether all expected arguments have been parsed
+		if argIndex != argCount {
+			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unexpected arglist end for method %s invocation: expected %d; got %d\n", p.tableName, p.r.Offset(), name, argCount, argIndex)
 			return false
 		}
 
-		p.scopeCurrent().Append(invocation)
-		return true
+		return p.scopeCurrent().Append(&methodInvocationEntity{
+			unnamedEntity: unnamedEntity{args: argList},
+			methodName:    name,
+		})
 	}
 
-	// This is a name reference; assume it's a forward reference for now
-	// and delegate its resolution to a post-parse step.
-	p.scopeCurrent().Append(&namedReference{targetName: name})
-	return true
+	// Otherwise this is a reference to a named entity
+	return p.scopeCurrent().Append(&namedReference{targetName: name})
 }
 
 func (p *Parser) nextOpcode() (*opcodeInfo, bool) {
@@ -893,7 +904,7 @@ func (p *Parser) parseTarget() (interface{}, bool) {
 	}
 
 	// In this case, this is either a NameString or a control method invocation.
-	if ok := p.parseMethodInvocationOrNameRef(); ok {
+	if ok := p.parseNamedRef(); ok {
 		obj := p.scopeCurrent().lastChild()
 		p.scopeCurrent().removeChild(obj)
 		return obj, ok
