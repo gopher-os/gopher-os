@@ -117,3 +117,17 @@ func vmOpIf(ctx *execContext, ent Entity) *Error {
 
 	return nil
 }
+
+// vmOpMethodInvocation dispatches a method invocation and sets ctx.retVal
+// to the value returned by the method invocation. This function also supports
+// invocation of methods that are provided by the kernel host such as the ones
+// defined in section 5.7 of the ACPI spec.
+func vmOpMethodInvocation(ctx *execContext, ent Entity) *Error {
+	// Make sure the target method is properly resolved
+	inv := ent.(*methodInvocationEntity)
+	if !inv.Resolve(ctx.vm.errWriter, ctx.vm.rootNS) {
+		return &Error{message: "call to undefined method: " + inv.methodName}
+	}
+
+	return ctx.vm.execMethod(ctx, inv.method, ent.getArgs()...)
+}

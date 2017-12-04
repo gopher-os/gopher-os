@@ -46,6 +46,10 @@ func (vm *VM) populateJumpTable() {
 
 	// Store-related opcodes
 	vm.jumpTable[opStore] = vmOpStore
+
+	// Method invocation dispatcher; to avoid clashes with real AML opcodes,
+	// method invocations are assigned an opcode with value (lastOpcode + 1)
+	vm.jumpTable[numOpcodes] = vmOpMethodInvocation
 }
 
 // opExecNotImplemented is a placeholder handler that returns a non-implemented

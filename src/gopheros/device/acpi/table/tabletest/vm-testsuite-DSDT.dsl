@@ -236,4 +236,15 @@ DefinitionBlock ("vm-testsuite-DSDT.aml", "DSDT", 2, "GOPHER", "GOPHEROS", 0x000
     Return(Local1)
   }
 
+  // Netsed method invocations
+  Method(NST0, 1, NotSerialized)
+  {
+    Return(NST1(Arg0))
+  }
+
+  Method(NST1, 1, NotSerialized)
+  {
+    Return(Arg0+42)
+  }
+
 }

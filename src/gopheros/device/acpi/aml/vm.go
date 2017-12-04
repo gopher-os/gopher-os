@@ -89,7 +89,7 @@ type VM struct {
 	// value so that it can be used by the data conversion helpers.
 	sizeOfIntInBits int
 
-	jumpTable [numOpcodes]opHandler
+	jumpTable [numOpcodes + 1]opHandler
 }
 
 // NewVM creates a new AML VM and initializes it with the default scope
@@ -169,7 +169,7 @@ func (vm *VM) checkEntities() *Error {
 
 		switch typ := ent.(type) {
 		case *Method:
-			// Do not recurse into methods; ath this stage we are only interested in
+			// Do not recurse into methods; at this stage we are only interested in
 			// initializing static entities.
 			return false
 		case *bufferEntity:
@@ -207,6 +207,33 @@ func (vm *VM) checkEntities() *Error {
 // function to signal that it's children should not be visited.
 func (vm *VM) Visit(entType EntityType, visitorFn Visitor) {
 	scopeVisit(0, vm.rootNS, entType, visitorFn)
+}
+
+// execMethod creates a new execution context and invokes the given method
+// passing along the supplied args. It populates the retVal of the input
+// context with the result of the method invocation.
+func (vm *VM) execMethod(ctx *execContext, method *Method, args ...interface{}) *Error {
+	var (
+		invCtx = execContext{vm: vm}
+		err    *Error
+	)
+
+	// Resolve invocation args and populate methodArgs for the new context
+	for argIndex := 0; argIndex < len(args); argIndex++ {
+		invCtx.methodArg[argIndex], err = vmLoad(ctx, args[argIndex])
+		if err != nil {
+			return err
+		}
+	}
+
+	// Execute method and resolve the return value before storing it to the
+	// parent context's retVal.
+	err = vm.execBlock(&invCtx, method)
+	if err == nil {
+		ctx.retVal, err = vmLoad(&invCtx, invCtx.retVal)
+	}
+
+	return err
 }
 
 // execBlock attempts to execute all AML opcodes in the supplied scoped entity.

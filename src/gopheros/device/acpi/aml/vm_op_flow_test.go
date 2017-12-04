@@ -1,6 +1,7 @@
 package aml
 
 import (
+	"io/ioutil"
 	"os"
 	"reflect"
 	"testing"
@@ -186,4 +187,62 @@ func TestVMFlowOpErrors(t *testing.T) {
 			t.Errorf("[spec %d] expected error: %s; got %v", specIndex, spec.expErr.Error(), err)
 		}
 	}
+}
+
+func TestVMNestedMethodCalls(t *testing.T) {
+	resolver := &mockResolver{
+		tableFiles: []string{"vm-testsuite-DSDT.aml"},
+	}
+
+	vm := NewVM(ioutil.Discard, resolver)
+	if err := vm.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("nested call success", func(t *testing.T) {
+		inv := &methodInvocationEntity{
+			unnamedEntity: unnamedEntity{
+				args: []interface{}{uint64(10)},
+			},
+			methodName: `\NST0`,
+		}
+
+		ctx := &execContext{vm: vm}
+		if err := vmOpMethodInvocation(ctx, inv); err != nil {
+			t.Fatal(err)
+		}
+
+		if exp := uint64(52); !reflect.DeepEqual(ctx.retVal, exp) {
+			t.Fatalf("expected return value to be: %v; got: %v", exp, ctx.retVal)
+		}
+	})
+
+	t.Run("undefined method", func(t *testing.T) {
+		inv := &methodInvocationEntity{methodName: `UNDEFINED`}
+
+		ctx := &execContext{vm: vm}
+		expErr := "call to undefined method: UNDEFINED"
+		if err := vmOpMethodInvocation(ctx, inv); err == nil || err.Error() != expErr {
+			t.Fatalf("expected error: %s; got %v", expErr, err)
+		}
+	})
+
+	t.Run("method arg load error", func(t *testing.T) {
+		op0Err := &Error{message: "something went wrong with op 0"}
+		vm.jumpTable[0] = func(_ *execContext, ent Entity) *Error { return op0Err }
+
+		inv := &methodInvocationEntity{
+			unnamedEntity: unnamedEntity{
+				args: []interface{}{
+					&unnamedEntity{}, // vmLoad will invoke jumpTable[0] which always returns an error
+				},
+			},
+			methodName: `\NST0`,
+		}
+
+		ctx := &execContext{vm: vm}
+		if err := vmOpMethodInvocation(ctx, inv); err != op0Err {
+			t.Fatalf("expected error: %s; got %v", op0Err, err)
+		}
+	})
 }
