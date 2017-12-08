@@ -366,7 +366,7 @@ func TestVMConvert(t *testing.T) {
 			&unnamedEntity{op: 0}, // uses our patched jumpTable[0] that always errors
 			valueTypeString,
 			nil,
-			&Error{message: "vmLoad: something went wrong"},
+			&Error{message: "something went wrong"},
 		},
 	}
 

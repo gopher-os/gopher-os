@@ -53,7 +53,7 @@ func TestVMFlowChanges(t *testing.T) {
 			vm:        vm,
 		}
 
-		if err := vm.execBlock(ctx, method); err != nil {
+		if err := execBlock(ctx, method); err != nil {
 			t.Errorf("[spec %02d] %s: invocation failed: %v\n", specIndex, spec.method, err)
 			continue
 		}
@@ -178,6 +178,24 @@ func TestVMFlowOpErrors(t *testing.T) {
 			},
 			op2Err,
 		},
+		{
+			vmOpFatal,
+			[]interface{}{
+				&scopeEntity{},
+				uint64(42),
+				uint64(128),
+			},
+			op0Err,
+		},
+		{
+			vmOpFatal,
+			[]interface{}{
+				uint64(42),
+				&scopeEntity{},
+				uint64(128),
+			},
+			op0Err,
+		},
 	}
 
 	ctx := &execContext{vm: vm}
@@ -222,8 +240,15 @@ func TestVMNestedMethodCalls(t *testing.T) {
 
 		ctx := &execContext{vm: vm}
 		expErr := "call to undefined method: UNDEFINED"
-		if err := vmOpMethodInvocation(ctx, inv); err == nil || err.Error() != expErr {
+		err := vmOpMethodInvocation(ctx, inv)
+		if err == nil || err.Error() != expErr {
 			t.Fatalf("expected error: %s; got %v", expErr, err)
+		}
+
+		// Since we are invoking the method directly instead of within an execBlock
+		// call, the error stack trace will not be populated
+		if exp, got := "No stack trace available", err.StackTrace(); got != exp {
+			t.Fatalf("expected error.StackTrace() to return:\n%s\ngot:\n%s", exp, got)
 		}
 	})
 
@@ -243,6 +268,31 @@ func TestVMNestedMethodCalls(t *testing.T) {
 		ctx := &execContext{vm: vm}
 		if err := vmOpMethodInvocation(ctx, inv); err != op0Err {
 			t.Fatalf("expected error: %s; got %v", op0Err, err)
+		}
+	})
+
+	t.Run("method raises fatal error", func(t *testing.T) {
+		inv := &methodInvocationEntity{
+			unnamedEntity: unnamedEntity{args: []interface{}{uint64(0x42)}},
+			methodName:    `\NST2`,
+		}
+
+		ctx := &execContext{vm: vm}
+		err := vmOpMethodInvocation(ctx, inv)
+		expErr := "fatal OEM-defined error (type: 0xde, code: 0xad, arg: 0xc0de)"
+		if err == nil || err.Error() != expErr {
+			t.Fatalf("expected to get error: %s; got %v", expErr, err)
+		}
+
+		expTrace := `Stack trace:
+[000] [DSDT] [NST2():0x2] opcode: Store
+[001] [DSDT] [NST3():0x1] opcode: Add
+[002] [DSDT] [NST4():0x8] opcode: If
+[003] [DSDT] [NST4():0x9] opcode: Fatal
+`
+
+		if got := err.StackTrace(); got != expTrace {
+			t.Fatalf("expected error.StackTrace() to return:\n%s\ngot:\n%s", expTrace, got)
 		}
 	})
 }

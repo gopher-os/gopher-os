@@ -25,7 +25,6 @@ func vmLoad(ctx *execContext, arg interface{}) (interface{}, *Error) {
 				// In this case, try evaluating the opcode and replace arg with the
 				// output value that gets stored stored into ctx.retVal
 				if err := ctx.vm.jumpTable[typ.getOpcode()](ctx, typ); err != nil {
-					err.message = "vmLoad: " + err.message
 					return nil, err
 				}
 

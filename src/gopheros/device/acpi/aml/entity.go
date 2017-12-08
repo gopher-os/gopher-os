@@ -33,6 +33,10 @@ type ScopeEntity interface {
 
 	removeChild(Entity)
 	lastChild() Entity
+
+	setBlockIPOffsets(uint32, uint32)
+	blockStartIPOffset() uint32
+	blockEndIPOffset() uint32
 }
 
 // unnamedEntity defines an unnamed entity that can be attached to a parent scope.
@@ -136,6 +140,12 @@ type scopeEntity struct {
 
 	name     string
 	children []Entity
+
+	// The VM keeps track of the start and end instruction offsets for each
+	// scope entity relative to its parent scope. This allows the VM to report
+	// accurate IP values when emitting stack traces.
+	blockStartIP uint32
+	blockEndIP   uint32
 }
 
 func (ent *scopeEntity) getOpcode() opcode            { return ent.op }
@@ -174,6 +184,11 @@ func (ent *scopeEntity) removeChild(child Entity) {
 }
 func (ent *scopeEntity) TableHandle() uint8     { return ent.tableHandle }
 func (ent *scopeEntity) setTableHandle(h uint8) { ent.tableHandle = h }
+func (ent *scopeEntity) setBlockIPOffsets(start, end uint32) {
+	ent.blockStartIP, ent.blockEndIP = start, end
+}
+func (ent *scopeEntity) blockStartIPOffset() uint32 { return ent.blockStartIP }
+func (ent *scopeEntity) blockEndIPOffset() uint32   { return ent.blockEndIP }
 
 // bufferEntity defines a buffer object.
 type bufferEntity struct {

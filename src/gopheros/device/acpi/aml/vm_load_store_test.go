@@ -91,7 +91,7 @@ func TestVMLoad(t *testing.T) {
 			&execContext{vm: vm},
 			&unnamedEntity{op: 0}, // uses our patched jumpTable[0] that always errors
 			nil,
-			&Error{message: "vmLoad: something went wrong"},
+			&Error{message: "something went wrong"},
 		},
 		// nested opcode which does not return an error
 		{

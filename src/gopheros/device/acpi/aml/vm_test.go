@@ -119,8 +119,8 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 			return nil
 		}
 
-		ctx := new(execContext)
-		if err := vm.execBlock(ctx, block); err != nil {
+		ctx := &execContext{vm: vm}
+		if err := execBlock(ctx, block); err != nil {
 			t.Fatal(err)
 		}
 
@@ -157,8 +157,8 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 			return nil
 		}
 
-		ctx := new(execContext)
-		if err := vm.execBlock(ctx, block); err != nil {
+		ctx := &execContext{vm: vm}
+		if err := execBlock(ctx, block); err != nil {
 			t.Fatal(err)
 		}
 
@@ -197,8 +197,8 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 			return nil
 		}
 
-		ctx := new(execContext)
-		if err := vm.execBlock(ctx, block); err != nil {
+		ctx := &execContext{vm: vm}
+		if err := execBlock(ctx, block); err != nil {
 			t.Fatal(err)
 		}
 
@@ -233,8 +233,8 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 			return nil
 		}
 
-		ctx := new(execContext)
-		if err := vm.execBlock(ctx, block); err != nil {
+		ctx := &execContext{vm: vm}
+		if err := execBlock(ctx, block); err != nil {
 			t.Fatal(err)
 		}
 
@@ -262,9 +262,9 @@ func TestVMExecBlockControlFlows(t *testing.T) {
 
 		vm.jumpTable[0] = opExecNotImplemented
 
-		ctx := new(execContext)
+		ctx := &execContext{vm: vm}
 		expErr := &Error{message: "opcode Zero not implemented"}
-		if err := vm.execBlock(ctx, block); err == nil || err.Error() != expErr.Error() {
+		if err := execBlock(ctx, block); err == nil || err.Error() != expErr.Error() {
 			t.Errorf("expected to get error: %v; got: %v", expErr, err)
 		}
 	})

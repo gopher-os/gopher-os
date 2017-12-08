@@ -247,4 +247,36 @@ DefinitionBlock ("vm-testsuite-DSDT.aml", "DSDT", 2, "GOPHER", "GOPHEROS", 0x000
     Return(Arg0+42)
   }
 
+  // Netsed method invocations that trigger an error. This block tests the
+  // generation of execution traces by the AML VM
+  Method(NST2, 1, NotSerialized)
+  {
+    Local1 = Arg0
+    Local2 = NST3(Local1)
+    Return(Local2)
+  }
+
+  Method(NST3, 1, NotSerialized)
+  {
+    Local1 = Arg0 + NST4(0x42)
+    Return(Local1)
+  }
+
+  Method(NST4, 1, NotSerialized)
+  {
+    Local0 = 0;
+    Local1 = 1;
+    While(Local0 != 10){
+      Local0++
+      if( Local0 == 5 ) {
+        Break
+      }
+      Local1++
+    }
+
+    if(Arg0 == 0x42){
+      Fatal(0xde, 0xad, 0xc0de)
+    }
+    Return(0)
+  }
 }

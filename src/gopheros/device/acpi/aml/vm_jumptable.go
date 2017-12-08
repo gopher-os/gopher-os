@@ -16,6 +16,7 @@ func (vm *VM) populateJumpTable() {
 	vm.jumpTable[opContinue] = vmOpContinue
 	vm.jumpTable[opWhile] = vmOpWhile
 	vm.jumpTable[opIf] = vmOpIf
+	vm.jumpTable[opFatal] = vmOpFatal
 
 	// ALU opcodes
 	vm.jumpTable[opAdd] = vmOpAdd

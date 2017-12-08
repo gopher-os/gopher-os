@@ -53,7 +53,7 @@ func TestArithmeticExpressions(t *testing.T) {
 			vm:        vm,
 		}
 
-		if err := vm.execBlock(ctx, method); err != nil {
+		if err := execBlock(ctx, method); err != nil {
 			t.Errorf("[spec %02d] %s: invocation failed: %v\n", specIndex, spec.method, err)
 			continue
 		}
@@ -174,7 +174,7 @@ func TestBitwiseExpressions(t *testing.T) {
 			vm:        vm,
 		}
 
-		if err := vm.execBlock(ctx, method); err != nil {
+		if err := execBlock(ctx, method); err != nil {
 			t.Errorf("[spec %02d] %s: invocation failed: %v\n", specIndex, spec.method, err)
 			continue
 		}
@@ -323,7 +323,7 @@ func TestLogicExpressions(t *testing.T) {
 			vm:        vm,
 		}
 
-		if err := vm.execBlock(ctx, method); err != nil {
+		if err := execBlock(ctx, method); err != nil {
 			t.Errorf("[spec %02d] %s: invocation failed: %v\n", specIndex, spec.method, err)
 			continue
 		}

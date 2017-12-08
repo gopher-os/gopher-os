@@ -1,5 +1,10 @@
 package aml
 
+import (
+	"bytes"
+	"gopheros/kernel/kfmt"
+)
+
 // Args: val
 // Set val as the return value in ctx and change the ctrlFlow
 // type to ctrlFlowTypeFnReturn.
@@ -56,13 +61,15 @@ func vmOpWhile(ctx *execContext, ent Entity) *Error {
 			break
 		}
 
-		err = ctx.vm.execBlock(ctx, whileBlock)
+		err = execBlock(ctx, whileBlock)
 		if ctx.ctrlFlow == ctrlFlowTypeFnReturn {
 			// Preserve return flow type so we exit the innermost function
 			break
 		} else if ctx.ctrlFlow == ctrlFlowTypeBreak {
 			// Exit while block and switch to sequential execution for the code
-			// that follows
+			// that follows. The current IP needs to be adjusted to point to the
+			// end of the current block
+			ctx.IP = whileBlock.blockEndIPOffset()
 			ctx.ctrlFlow = ctrlFlowTypeNextOpcode
 			break
 		}
@@ -110,9 +117,9 @@ func vmOpIf(ctx *execContext, ent Entity) *Error {
 	}
 
 	if predResAsUint, isUint := predRes.(uint64); !isUint || predResAsUint == 1 {
-		return ctx.vm.execBlock(ctx, ifBlock)
+		return execBlock(ctx, ifBlock)
 	} else if elseBlock != nil {
-		return ctx.vm.execBlock(ctx, elseBlock)
+		return execBlock(ctx, elseBlock)
 	}
 
 	return nil
@@ -130,4 +137,29 @@ func vmOpMethodInvocation(ctx *execContext, ent Entity) *Error {
 	}
 
 	return ctx.vm.execMethod(ctx, inv.method, ent.getArgs()...)
+}
+
+// Args: type, code, arg
+//
+// Generate an OEM-defined fatal error. The OSPM must catch this error,
+// optionally log it and perform a controlled system shutdown
+func vmOpFatal(ctx *execContext, ent Entity) *Error {
+	var (
+		buf     bytes.Buffer
+		errType uint64
+		errCode uint64
+		errArg  uint64
+		err     *Error
+	)
+
+	if errType, err = vmToIntArg(ctx, ent, 0); err != nil {
+		return err
+	}
+
+	if errCode, errArg, err = vmToIntArgs2(ctx, ent, 1, 2); err != nil {
+		return err
+	}
+
+	kfmt.Fprintf(&buf, "fatal OEM-defined error (type: 0x%x, code: 0x%x, arg: 0x%x)", errType, errCode, errArg)
+	return &Error{message: buf.String()}
 }
