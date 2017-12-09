@@ -33,6 +33,10 @@ type ScopeEntity interface {
 
 	removeChild(Entity)
 	lastChild() Entity
+
+	setBlockIPOffsets(uint32, uint32)
+	blockStartIPOffset() uint32
+	blockEndIPOffset() uint32
 }
 
 // unnamedEntity defines an unnamed entity that can be attached to a parent scope.
@@ -136,6 +140,12 @@ type scopeEntity struct {
 
 	name     string
 	children []Entity
+
+	// The VM keeps track of the start and end instruction offsets for each
+	// scope entity relative to its parent scope. This allows the VM to report
+	// accurate IP values when emitting stack traces.
+	blockStartIP uint32
+	blockEndIP   uint32
 }
 
 func (ent *scopeEntity) getOpcode() opcode            { return ent.op }
@@ -174,6 +184,11 @@ func (ent *scopeEntity) removeChild(child Entity) {
 }
 func (ent *scopeEntity) TableHandle() uint8     { return ent.tableHandle }
 func (ent *scopeEntity) setTableHandle(h uint8) { ent.tableHandle = h }
+func (ent *scopeEntity) setBlockIPOffsets(start, end uint32) {
+	ent.blockStartIP, ent.blockEndIP = start, end
+}
+func (ent *scopeEntity) blockStartIPOffset() uint32 { return ent.blockStartIP }
+func (ent *scopeEntity) blockEndIPOffset() uint32   { return ent.blockEndIP }
 
 // bufferEntity defines a buffer object.
 type bufferEntity struct {
@@ -409,7 +424,7 @@ type namedReference struct {
 func (ref *namedReference) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	if ref.target == nil {
 		if ref.target = scopeFind(ref.parent, rootNs, ref.targetName); ref.target == nil {
-			kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, ref.parent.Name())
+			kfmt.Fprintf(errWriter, "could not resolve referenced symbol: %s (parent: %s)\n", ref.targetName, entName(ref.parent))
 			return false
 		}
 	}
@@ -425,11 +440,18 @@ type methodInvocationEntity struct {
 	method     *Method
 }
 
+// getOpcode returns a fake opcode (set to numOpcodes) for method invocations.
+// This allows the interpreter to register a handler for method invocations in
+// its jumpTable that does not produce a conflict with any existing opcodes.
+func (m *methodInvocationEntity) getOpcode() opcode {
+	return numOpcodes
+}
+
 func (m *methodInvocationEntity) Resolve(errWriter io.Writer, rootNs ScopeEntity) bool {
 	if m.method == nil {
 		var isMethod bool
 		if m.method, isMethod = scopeFind(m.parent, rootNs, m.methodName).(*Method); !isMethod {
-			kfmt.Fprintf(errWriter, "could not resolve merenced method: %s (parent: %s)\n", m.methodName, m.parent.Name())
+			kfmt.Fprintf(errWriter, "could not resolve merenced method: %s (parent: %s)\n", m.methodName, entName(m.parent))
 			return false
 		}
 	}
@@ -503,4 +525,13 @@ func (ent *mutexEntity) setTableHandle(h uint8) { ent.tableHandle = h }
 // eventEntity represents a named ACPI sync event.
 type eventEntity struct {
 	namedEntity
+}
+
+// entName returns the entity name if ent is not nil or a blank string otherwise.
+func entName(ent Entity) string {
+	if ent == nil {
+		return ""
+	}
+
+	return ent.Name()
 }
