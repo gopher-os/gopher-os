@@ -1,4 +1,4 @@
-package aml
+package parser
 
 import (
 	"errors"
