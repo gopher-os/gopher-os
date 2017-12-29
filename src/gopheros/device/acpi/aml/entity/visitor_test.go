@@ -8,7 +8,7 @@ func TestScopeVisit(t *testing.T) {
 	stopRecursing := func(Entity) bool { return false }
 
 	// Append special entities under IDE0
-	root := NewScope(tableHandle, "IDE0")
+	root := NewScope(OpScope, tableHandle, "IDE0")
 	root.Append(NewDevice(tableHandle, "DEV0"))
 	root.Append(NewProcessor(tableHandle, "FOO0"))
 	root.Append(NewProcessor(tableHandle, "FOO0"))

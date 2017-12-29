@@ -6,6 +6,7 @@ package entity
 // representation of the opcode values.
 type AMLOpcode uint16
 
+// List of AML opcodes
 const (
 	// Regular opcode list
 	OpZero             = AMLOpcode(0x00)
@@ -422,17 +423,6 @@ func OpIsType2(op AMLOpcode) bool {
 		OpSizeOf, OpStore, OpSubtract, OpTimer, OpToBCD, OpToBuffer,
 		OpToDecimalString, OpToHexString, OpToInteger, OpToString,
 		OpWait, OpXor:
-		return true
-	default:
-		return false
-	}
-}
-
-// OpIsBufferField returens true if this opcode describes a
-// buffer field creation operation.
-func OpIsBufferField(op AMLOpcode) bool {
-	switch op {
-	case OpCreateField, OpCreateBitField, OpCreateByteField, OpCreateWordField, OpCreateDWordField, OpCreateQWordField:
 		return true
 	default:
 		return false

@@ -55,7 +55,7 @@ const (
 
 // is returns true if f is set in this opFlag.
 func (fl opFlag) is(f opFlag) bool {
-	return (fl & f) != 0
+	return (fl & f) == f
 }
 
 // opArgFlags encodes up to 7 opArgFlag values in a uint64 value.
@@ -99,7 +99,6 @@ const (
 	opArgTermList
 	opArgTermObj
 	opArgByteList
-	opArgPackage
 	opArgString
 	opArgByteData
 	opArgWord
