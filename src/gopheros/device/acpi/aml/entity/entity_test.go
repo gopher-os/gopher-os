@@ -79,6 +79,19 @@ func TestEntityMethods(t *testing.T) {
 			t.Fatalf("expected parent not to have any child nodes; got %d", got)
 		}
 	})
+
+	t.Run("FieldAccessTypeProvider implementers", func(t *testing.T) {
+		for specIndex, spec := range specs {
+			provider, ok := spec.ent.(FieldAccessTypeProvider)
+			if !ok {
+				continue
+			}
+
+			if exp, got := FieldAccessTypeAny, provider.DefaultAccessType(); got != exp {
+				t.Errorf("[spec %d] expected provider to return access type: %d; got %d", specIndex, exp, got)
+			}
+		}
+	})
 }
 
 func TestEntityArgAssignment(t *testing.T) {
@@ -159,6 +172,24 @@ func TestEntityArgAssignment(t *testing.T) {
 			[]interface{}{uint64(1), NewConst(OpDwordPrefix, 2, uint64(42))},
 			[]interface{}{NewConst(OpDwordPrefix, 2, uint64(42))},
 			false,
+		},
+		{
+			NewField(2),
+			[]interface{}{"REG0", uint64(128)},
+			nil, // Field populates its internal state using the first 2 args
+			true,
+		},
+		{
+			NewIndexField(2),
+			[]interface{}{"REG0", "DAT0", uint64(128)},
+			nil, // IndexField populates its internal state using the first 3 args
+			true,
+		},
+		{
+			NewBankField(2),
+			[]interface{}{"REG0", "BNK0", uint64(0xf00f), uint64(128)},
+			nil, // BankField populates its internal state using the first 4 args
+			true,
 		},
 	}
 

@@ -47,6 +47,7 @@ type Container interface {
 	Last() Entity
 }
 
+// FieldAccessTypeProvider is an interface implemented by all field entities.
 type FieldAccessTypeProvider interface {
 	// DefaultAccessType returns the default FieldAccessType for any field unit
 	// defined by this field.

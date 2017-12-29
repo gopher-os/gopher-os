@@ -227,14 +227,6 @@ func TestOpcodeIsX(t *testing.T) {
 		{OpPackage, OpIsDataObject, true},
 		{OpVarPackage, OpIsDataObject, true},
 		{OpLor, OpIsDataObject, false},
-		// OpIsBufferField
-		{OpCreateField, OpIsBufferField, true},
-		{OpCreateBitField, OpIsBufferField, true},
-		{OpCreateByteField, OpIsBufferField, true},
-		{OpCreateWordField, OpIsBufferField, true},
-		{OpCreateDWordField, OpIsBufferField, true},
-		{OpCreateQWordField, OpIsBufferField, true},
-		{OpRevision, OpIsBufferField, false},
 	}
 
 	for specIndex, spec := range specs {
