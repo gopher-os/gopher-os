@@ -214,3 +214,90 @@ nextSpec:
 		}
 	}
 }
+
+func TestLazySymbolResolver(t *testing.T) {
+	root := NewScope(OpScope, 42, `\`)
+	reg0 := NewRegion(42)
+	reg0.SetArg(0, "REG0")
+	root.Append(reg0)
+	root.Append(NewFieldUnit(42, "FLD0"))
+	root.Append(NewMethod(42, "MTH0"))
+
+	specs := []struct {
+		ent    Entity
+		expErr string
+	}{
+		{
+			&Field{RegionName: "MISSING"},
+			"could not resolve referenced field region: MISSING",
+		},
+		{
+			&Field{RegionName: "REG0"},
+			"",
+		},
+		{
+			&IndexField{IndexRegName: "UNKNOWN"},
+			"could not resolve referenced index register: UNKNOWN",
+		},
+		{
+			&IndexField{IndexRegName: "FLD0", DataRegName: "UNKNOWN"},
+			"could not resolve referenced data register: UNKNOWN",
+		},
+		{
+			&IndexField{IndexRegName: "FLD0", DataRegName: "FLD0"},
+			"",
+		},
+		{
+			&BankField{RegionName: "MISSING"},
+			"could not resolve referenced field region: MISSING",
+		},
+		{
+			&BankField{RegionName: "REG0", BankFieldUnitName: "UNKNOWN"},
+			"could not resolve referenced bank register field: UNKNOWN",
+		},
+		{
+			&BankField{RegionName: "REG0", BankFieldUnitName: "FLD0"},
+			"",
+		},
+		{
+			&FieldUnit{
+				GenericNamed:   GenericNamed{name: "FLD0"},
+				ConnectionName: "MISSING",
+			},
+			"[field unit: FLD0] could not resolve connection reference: MISSING",
+		},
+		{
+			// No connection reference
+			&FieldUnit{},
+			"",
+		},
+		{
+			&FieldUnit{ConnectionName: "FLD0"},
+			"",
+		},
+		{
+			&Reference{TargetName: "MISSING"},
+			`could not resolve referenced symbol: MISSING; parent: \`,
+		},
+		{
+			&Reference{TargetName: "FLD0"},
+			"",
+		},
+		{
+			&Invocation{MethodName: "UNKNOWN"},
+			`could not resolve method invocation to: UNKNOWN; parent: \`,
+		},
+		{
+			&Invocation{MethodName: "MTH0"},
+			"",
+		},
+	}
+
+	for specIndex, spec := range specs {
+		root.Append(spec.ent)
+		err := spec.ent.(LazyRefResolver).ResolveSymbolRefs(root)
+		if spec.expErr != "" && (err == nil || err.Message != spec.expErr) {
+			t.Errorf("[spec %d] expected ResolveReferences to return error %q; got: %v", specIndex, spec.expErr, err)
+		}
+	}
+}

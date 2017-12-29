@@ -451,6 +451,21 @@ func (ent *Field) SetArg(argIndex uint8, arg interface{}) bool {
 	return ok
 }
 
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *Field) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	var ok bool
+	if ent.Region, ok = FindInScope(ent.Parent(), rootNS, ent.RegionName).(*Region); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "could not resolve referenced field region: " + ent.RegionName,
+		}
+	}
+
+	return nil
+}
+
 // IndexField is a special field that groups together two field units so a
 // index/data register pattern can be implemented. To write a value to an
 // IndexField, the interpreter must first write the appropriate offset to
@@ -506,6 +521,29 @@ func (ent *IndexField) SetArg(argIndex uint8, arg interface{}) bool {
 		ent.UpdateRule = FieldUpdateRule((uintVal >> 5) & 0x3) // update rule; bits[5:6]
 	}
 	return ok
+}
+
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *IndexField) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	var ok bool
+
+	if ent.IndexReg, ok = FindInScope(ent.Parent(), rootNS, ent.IndexRegName).(*FieldUnit); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "could not resolve referenced index register: " + ent.IndexRegName,
+		}
+	}
+
+	if ent.DataReg, ok = FindInScope(ent.Parent(), rootNS, ent.DataRegName).(*FieldUnit); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "could not resolve referenced data register: " + ent.DataRegName,
+		}
+	}
+
+	return nil
 }
 
 // BankField is a special field where a bank register must be used to select
@@ -569,6 +607,29 @@ func (ent *BankField) SetArg(argIndex uint8, arg interface{}) bool {
 	return ok
 }
 
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *BankField) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	var ok bool
+
+	if ent.Region, ok = FindInScope(ent.Parent(), rootNS, ent.RegionName).(*Region); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "could not resolve referenced field region: " + ent.RegionName,
+		}
+	}
+
+	if ent.BankFieldUnit, ok = FindInScope(ent.Parent(), rootNS, ent.BankFieldUnitName).(*FieldUnit); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "could not resolve referenced bank register field: " + ent.BankFieldUnitName,
+		}
+	}
+
+	return nil
+}
+
 // FieldUnit describes a sub-region inside a parent field.
 type FieldUnit struct {
 	GenericNamed
@@ -609,6 +670,24 @@ func NewFieldUnit(tableHandle uint8, name string) *FieldUnit {
 	}
 }
 
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *FieldUnit) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	if ent.ConnectionName == "" {
+		return nil
+	}
+
+	if ent.Connection = FindInScope(ent.Parent(), rootNS, ent.ConnectionName); ent.Connection == nil {
+		return &kernel.Error{
+			Module:  "acpi_aml_resolver",
+			Message: "[field unit: " + ent.Name() + "] could not resolve connection reference: " + ent.ConnectionName,
+		}
+	}
+
+	return nil
+}
+
 // Reference holds a named reference to an AML symbol. The spec allows the
 // symbol not to be defined at the time when the reference is parsed. In such a
 // case (forward reference) it will be resolved after the entire AML stream has
@@ -629,6 +708,20 @@ func NewReference(tableHandle uint8, target string) *Reference {
 		},
 		TargetName: target,
 	}
+}
+
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *Reference) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	if ent.Target = FindInScope(ent.Parent(), rootNS, ent.TargetName); ent.Target == nil {
+		return &kernel.Error{
+			Module:  "acpi_aml_vm",
+			Message: "could not resolve referenced symbol: " + ent.TargetName + "; parent: " + ent.Parent().Name(),
+		}
+	}
+
+	return nil
 }
 
 // Method describes an invocable AML method.
@@ -695,6 +788,21 @@ func NewInvocation(tableHandle uint8, name string) *Invocation {
 		},
 		MethodName: name,
 	}
+}
+
+// ResolveSymbolRefs receives as input the root of the AML entity tree and
+// attempts to resolve any symbol references using the scope searching rules
+// defined by the ACPI spec.
+func (ent *Invocation) ResolveSymbolRefs(rootNS Container) *kernel.Error {
+	var ok bool
+	if ent.MethodDef, ok = FindInScope(ent.Parent(), rootNS, ent.MethodName).(*Method); !ok {
+		return &kernel.Error{
+			Module:  "acpi_aml_vm",
+			Message: "could not resolve method invocation to: " + ent.MethodName + "; parent: " + ent.Parent().Name(),
+		}
+	}
+
+	return nil
 }
 
 // Device defines an AML device entity.
