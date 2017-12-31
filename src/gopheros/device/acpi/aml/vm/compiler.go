@@ -65,6 +65,15 @@ func newCompilerContext(rootNS entity.Container) *compilerContext {
 		entity.OpNot:             {opNot, compileUnaryOperator},
 		entity.OpFindSetLeftBit:  {opFindSlb, compileUnaryOperator},
 		entity.OpFindSetRightBit: {opFindSrb, compileUnaryOperator},
+		// Logic opcodes
+		entity.OpLEqual:   {opJe, compileLogicOperator},
+		entity.OpLGreater: {opJg, compileLogicOperator},
+		entity.OpLLess:    {opJl, compileLogicOperator},
+		entity.OpLnot:     {opXor, compileLogicNotOperator},
+		// Logic and/or is modelled as a bitwise AND/OR on the output
+		// of two logic expressions
+		entity.OpLand: {opAnd, compileBinaryOperator},
+		entity.OpLor:  {opOr, compileBinaryOperator},
 	}
 
 	return compCtx
@@ -242,6 +251,65 @@ func compileBinaryOperator(compCtx *compilerContext, vmOp uint8, ent entity.Enti
 	if len(operands) == 3 && !isNilTarget(operands[2]) {
 		return compileOperand(compCtx, operands[2], opDirectionOut)
 	}
+
+	return nil
+}
+
+// compileLogicOperator generates a stream of conditional jump opcodes that
+// implement a logic operator.
+func compileLogicOperator(compCtx *compilerContext, vmJmpOp uint8, ent entity.Entity) *kernel.Error {
+	operands := ent.Args()
+	if len(operands) < 2 {
+		return &kernel.Error{
+			Module:  "acpi_aml_compiler",
+			Message: "unexpected operand count for logic operator " + ent.Opcode().String(),
+		}
+	}
+
+	// To emulate the logic operation the following sequence of
+	// instructions gets generated:
+	//
+	//   push op1
+	//   push op2
+	//   vmJmpOp true_label ; IP += 11
+	//   push_0             ; cmp evaluated to false
+	//   jmp done_label     ; IP += 6
+	// true_label: push_1   ; cmp evaluated to true
+	// done_label:
+	for opIndex := 0; opIndex < 2; opIndex++ {
+		if err := compileOperand(compCtx, operands[opIndex], opDirectionIn); err != nil {
+			return err
+		}
+	}
+
+	emit32(compCtx, vmJmpOp, uint32(len(compCtx.vmCtx.bytecode))+11)
+	emit8(compCtx, opPushZero)
+	emit32(compCtx, opJmp, uint32(len(compCtx.vmCtx.bytecode))+6)
+	emit8(compCtx, opPushOne)
+
+	return nil
+}
+
+// compileLogicNotOperator generates the appropriate opcode stream for toggling
+// the top-most stack entry between 0 and 1.
+func compileLogicNotOperator(compCtx *compilerContext, _ uint8, ent entity.Entity) *kernel.Error {
+	operands := ent.Args()
+	if len(operands) < 1 {
+		return &kernel.Error{
+			Module:  "acpi_aml_compiler",
+			Message: "unexpected operand count for operator " + ent.Opcode().String(),
+		}
+	}
+
+	// Compile operand
+	if err := compileOperand(compCtx, operands[0], opDirectionIn); err != nil {
+		return err
+	}
+
+	// The top of the stack will now be a 0/1 value. By XOR-ing with 1
+	// we can toggle the value
+	emit8(compCtx, opPushOne)
+	emit8(compCtx, opXor)
 
 	return nil
 }
