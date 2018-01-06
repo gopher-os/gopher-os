@@ -25,7 +25,7 @@ func TestEntityMethods(t *testing.T) {
 		{NewBankField(42), OpBankField, ""},
 		{NewReference(42, "TRG0"), OpName, ""},
 		{NewMethod(42, "FOO0"), OpMethod, "FOO0"},
-		{NewInvocation(42, "MTH0", nil), OpMethodInvocation, ""},
+		{NewInvocation(42, NewMethod(42, "MTH0"), nil), OpMethodInvocation, ""},
 		{NewMutex(42), OpMutex, ""},
 		{NewDevice(42, "DEV0"), OpDevice, "DEV0"},
 		{NewProcessor(42, "CPU0"), OpProcessor, "CPU0"},
@@ -281,14 +281,6 @@ func TestLazySymbolResolver(t *testing.T) {
 		},
 		{
 			&Reference{TargetName: "FLD0"},
-			"",
-		},
-		{
-			&Invocation{MethodName: "UNKNOWN"},
-			`could not resolve method invocation to: UNKNOWN; parent: \`,
-		},
-		{
-			&Invocation{MethodName: "MTH0"},
 			"",
 		},
 	}

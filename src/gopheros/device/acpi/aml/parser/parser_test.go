@@ -36,6 +36,63 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestParsingOfMethodBodies(t *testing.T) {
+	var resolver = mockResolver{
+		tableFiles: []string{"parser-testsuite-fwd-decls-DSDT.aml"},
+	}
+
+	p := NewParser(os.Stderr, genDefaultScopes())
+	tableName := strings.Replace(resolver.tableFiles[0], ".aml", "", -1)
+	if err := p.ParseAML(0, tableName, resolver.LookupTable(tableName)); err != nil {
+		t.Fatalf("[%s]: %v", tableName, err)
+	}
+
+	// Collect invocations
+	var invocations []*entity.Invocation
+	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
+		if inv, isInv := ent.(*entity.Invocation); isInv {
+			invocations = append(invocations, inv)
+		}
+		return true
+	})
+
+	specs := []struct {
+		expParentName string
+		expArgCount   int
+	}{
+		// Call to `\NST1`
+		{`\`, 1},
+		// Call to `\_SB.NST1`
+		{`_SB_`, 2},
+		// Call to `\NST1` (first argument of above invocation)
+		{`\`, 1},
+	}
+
+	if exp, got := len(specs), len(invocations); exp != got {
+		t.Fatalf("expected parser to produce %d method invocations; got %d", exp, got)
+	}
+
+	for specIndex, spec := range specs {
+		if got := invocations[specIndex].Method.Parent().Name(); got != spec.expParentName {
+			t.Errorf(
+				"[spec %d] expected invocation to target %s.%s; got %s.%s",
+				specIndex,
+				spec.expParentName, invocations[specIndex].Method.Name(),
+				got, invocations[specIndex].Method.Name(),
+			)
+		}
+
+		if got := len(invocations[specIndex].Args()); got != spec.expArgCount {
+			t.Errorf(
+				"[spec %d] expected invocation to target %s.%s to receive %d args; got %d",
+				specIndex,
+				spec.expParentName, invocations[specIndex].Method.Name(), spec.expArgCount,
+				got,
+			)
+		}
+	}
+}
+
 func TestTableHandleAssignment(t *testing.T) {
 	var resolver = mockResolver{tableFiles: []string{"parser-testsuite-DSDT.aml"}}
 
@@ -326,11 +383,12 @@ func TestParserErrorHandling(t *testing.T) {
 	})
 
 	t.Run("parseNamedRef errors", func(t *testing.T) {
-		t.Run("missing args", func(t *testing.T) {
+		t.Run("incorrect args for method", func(t *testing.T) {
 			p.root = entity.NewScope(entity.OpScope, 42, `\`)
-			p.methodArgCount = map[string]uint8{
-				"MTHD": 10,
-			}
+
+			methodDecl := entity.NewMethod(42, "MTHD")
+			methodDecl.ArgCount = 5
+			p.root.Append(methodDecl)
 
 			mockParserPayload(p, []byte{
 				'M', 'T', 'H', 'D',
@@ -602,77 +660,6 @@ func TestParserErrorHandling(t *testing.T) {
 				}
 			}
 		})
-	})
-}
-
-func TestDetectMethodDeclarations(t *testing.T) {
-	p := &Parser{
-		errWriter: ioutil.Discard,
-	}
-
-	validMethod := []byte{
-		byte(entity.OpMethod),
-		5, // pkgLen
-		'M', 'T', 'H', 'D',
-		2, // flags (2 args)
-	}
-
-	t.Run("success", func(t *testing.T) {
-		mockParserPayload(p, validMethod)
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-
-		argCount, inMap := p.methodArgCount["MTHD"]
-		if !inMap {
-			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
-		}
-
-		if exp := uint8(2); argCount != exp {
-			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
-		}
-	})
-
-	t.Run("bad pkgLen", func(t *testing.T) {
-		mockParserPayload(p, []byte{
-			byte(entity.OpMethod),
-			// lead byte bits (6:7) indicate 1 extra byte that is missing
-			byte(1 << 6),
-		})
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-	})
-
-	t.Run("error parsing namestring", func(t *testing.T) {
-		mockParserPayload(p, append([]byte{
-			byte(entity.OpMethod),
-			byte(5), // pkgLen
-			10,      // bogus char, not part of namestring
-		}, validMethod...))
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-
-		argCount, inMap := p.methodArgCount["MTHD"]
-		if !inMap {
-			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
-		}
-
-		if exp := uint8(2); argCount != exp {
-			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
-		}
-	})
-
-	t.Run("error parsing method flags", func(t *testing.T) {
-		mockParserPayload(p, []byte{
-			byte(entity.OpMethod),
-			byte(5), // pkgLen
-			'F', 'O', 'O', 'F',
-			// Missing flag byte
-		})
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
 	})
 }
 

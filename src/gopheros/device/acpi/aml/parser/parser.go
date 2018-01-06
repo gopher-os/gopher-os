@@ -14,6 +14,13 @@ var (
 	errResolvingEntities = &kernel.Error{Module: "acpi_aml_parser", Message: "AML bytecode contains unresolvable entities"}
 )
 
+type parseOpt uint8
+
+const (
+	parseOptSkipMethodBodies parseOpt = iota
+	parseOptParseMethodBodies
+)
+
 // Parser implements an AML parser.
 type Parser struct {
 	r           amlStreamReader
@@ -23,19 +30,14 @@ type Parser struct {
 	tableName   string
 	tableHandle uint8
 
-	// methodArgCount is initialized in a pre-parse step with the names and expected
-	// number of args for each function declaration. This is required as function
-	// invocations do not employ any mechanism to indicate the number of args that
-	// need to be parsed. Moreover, the spec allows for forward function declarations.
-	methodArgCount map[string]uint8
+	parseOptions parseOpt
 }
 
 // NewParser returns a new AML parser instance.
 func NewParser(errWriter io.Writer, rootEntity entity.Container) *Parser {
 	return &Parser{
-		errWriter:      errWriter,
-		root:           rootEntity,
-		methodArgCount: make(map[string]uint8),
+		errWriter: errWriter,
+		root:      rootEntity,
 	}
 }
 
@@ -51,12 +53,9 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 		uint32(unsafe.Sizeof(table.SDTHeader{})),
 	)
 
-	// Pass 1: scan bytecode and locate all method declarations. This allows us to
-	// properly parse the arguments to method invocations at pass 2 even if the
-	// the name of the invoked method is a forward reference.
-	p.detectMethodDeclarations()
-
-	// Pass 2: decode bytecode and build entitites
+	// Pass 1: decode bytecode and build entitites without recursing into
+	// function bodies.
+	p.parseOptions = parseOptSkipMethodBodies
 	p.scopeStack = nil
 	p.scopeEnter(p.root)
 	if !p.parseObjList(header.Length) {
@@ -66,11 +65,15 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	}
 	p.scopeExit()
 
-	// Pass 3: check parents and resolve symbol references
+	// Pass 2: parse method bodies, check entity parents and resolve all
+	// symbol references
 	var resolveFailed bool
 	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
-		// Skip method bodies; their contents will be lazily resolved by the interpreter
-		if _, isMethod := ent.(*entity.Method); isMethod {
+		if method, isMethod := ent.(*entity.Method); isMethod {
+			resolveFailed = resolveFailed || !p.parseMethodBody(method)
+
+			// Don't recurse into method bodies; their contents
+			// will be lazilly resolved by the VM
 			return false
 		}
 
@@ -101,57 +104,6 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	return nil
 }
 
-// detectMethodDeclarations scans the AML byte-stream looking for function
-// declarations.  For each discovered function, the method will parse its flags
-// and update the methodArgCount map with the number of required arguments.
-func (p *Parser) detectMethodDeclarations() {
-	var (
-		next              *opcodeInfo
-		method            string
-		startOffset       = p.r.Offset()
-		curOffset, pkgLen uint32
-		flags             uint64
-		ok                bool
-	)
-
-	for !p.r.EOF() {
-		if next, ok = p.nextOpcode(); !ok {
-			// Skip one byte to the right and try again. Maybe we are stuck inside
-			// the contents of a string or buffer
-			_, _ = p.r.ReadByte()
-			continue
-		}
-
-		if next.op != entity.OpMethod {
-			continue
-		}
-
-		// Parse pkg len; if this fails then this is not a method declaration
-		curOffset = p.r.Offset()
-		if pkgLen, ok = p.parsePkgLength(); !ok {
-			continue
-		}
-
-		// Parse method name
-		if method, ok = p.parseNameString(); !ok {
-			continue
-		}
-
-		// The next byte encodes the method flags which also contains the arg count
-		// at bits 0:2
-		if flags, ok = p.parseNumConstant(1); !ok {
-			continue
-		}
-
-		p.methodArgCount[method] = uint8(flags) & 0x7
-
-		// At this point we can use the pkg length to skip over the term list
-		p.r.SetOffset(curOffset + pkgLen)
-	}
-
-	p.r.SetOffset(startOffset)
-}
-
 // parseObjList tries to parse an AML object list. Object lists are usually
 // specified together with a pkgLen block which is used to calculate the max
 // read offset that the parser may reach.
@@ -174,8 +126,7 @@ func (p *Parser) parseObj() bool {
 	)
 
 	// If we cannot decode the next opcode then this may be a method
-	// invocation or a name reference. If neither is the case, we need to
-	// rewind the stream and parse a method invocation before giving up.
+	// invocation or a name reference.
 	curOffset = p.r.Offset()
 	if info, ok = p.nextOpcode(); !ok {
 		p.r.SetOffset(curOffset)
@@ -352,6 +303,16 @@ func (p *Parser) parseArg(info *opcodeInfo, obj entity.Entity, argIndex uint8, a
 	case opArgTarget:
 		arg, ok = p.parseTarget()
 	case opArgTermList:
+		// If this is a method and the SkipMethodBodies option is set
+		// then record the body start and end offset so we can parse
+		// it at a later stage.
+		if method, isMethod := obj.(*entity.Method); isMethod && p.parseOptions == parseOptSkipMethodBodies {
+			method.BodyStartOffset = p.r.Offset()
+			method.BodyEndOffset = maxReadOffset
+			p.r.SetOffset(maxReadOffset)
+			return true
+		}
+
 		// If object is a scoped entity enter it's scope before parsing
 		// the term list. Otherwise, create an unnamed scope, attach it
 		// as the next argument to obj and enter that.
@@ -450,6 +411,25 @@ func (p *Parser) makeObjForOpcode(info *opcodeInfo) entity.Entity {
 	return obj
 }
 
+// parseMethodBody parses the entities that make up a method's body. After the
+// entire AML tree has been parsed, the parser makes a second pass and calls
+// parseMethodBody for each Method entity.
+//
+// By deferring the parsing of the method body, we ensure that the parser can
+// lookup the method declarations (even if forward declarations are used) for
+// each method invocation. As method declarations contain information about the
+// expected argument count, the parser can use this information to properly
+// parse the invocation arguments. For more details see: parseNamedRef
+func (p *Parser) parseMethodBody(method *entity.Method) bool {
+	p.parseOptions = parseOptParseMethodBodies
+	p.scopeEnter(method)
+	p.r.SetOffset(method.BodyStartOffset)
+	ok := p.parseArg(&opcodeTable[methodOpInfoIndex], method, 2, opArgTermList, method.BodyEndOffset)
+	p.scopeExit()
+
+	return ok
+}
+
 // parseNamedRef attempts to parse either a method invocation or a named
 // reference. As AML allows for forward references, the actual contents for
 // this entity will not be known until the entire AML stream has been parsed.
@@ -464,15 +444,17 @@ func (p *Parser) parseNamedRef() bool {
 		return false
 	}
 
-	var (
-		curOffset uint32
-		argIndex  uint8
-		arg       entity.Entity
-		argList   []interface{}
-	)
+	// Check if this is a method invocation
+	ent := entity.FindInScope(p.scopeCurrent(), p.root, name)
+	if methodDef, isMethod := ent.(*entity.Method); isMethod {
+		var (
+			curOffset uint32
+			argIndex  uint8
+			arg       entity.Entity
+			argList   []interface{}
+		)
 
-	if argCount, isMethod := p.methodArgCount[name]; isMethod {
-		for argIndex < argCount && !p.r.EOF() {
+		for argIndex < methodDef.ArgCount && !p.r.EOF() {
 			// Peek next opcode
 			curOffset = p.r.Offset()
 			nextOpcode, ok := p.nextOpcode()
@@ -501,12 +483,12 @@ func (p *Parser) parseNamedRef() bool {
 		}
 
 		// Check whether all expected arguments have been parsed
-		if argIndex != argCount {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unexpected arglist end for method %s invocation: expected %d; got %d\n", p.tableName, p.r.Offset(), name, argCount, argIndex)
+		if argIndex != methodDef.ArgCount {
+			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unexpected arglist end for method %s invocation: expected %d; got %d\n", p.tableName, p.r.Offset(), name, methodDef.ArgCount, argIndex)
 			return false
 		}
 
-		return p.scopeCurrent().Append(entity.NewInvocation(p.tableHandle, name, argList))
+		return p.scopeCurrent().Append(entity.NewInvocation(p.tableHandle, methodDef, argList))
 	}
 
 	// Otherwise this is a reference to a named entity

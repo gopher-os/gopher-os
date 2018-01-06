@@ -142,6 +142,9 @@ type opcodeInfo struct {
 	argFlags opArgFlags
 }
 
+// Used by Parser.parseMethodBody for deferred parsing of method bodies.
+const methodOpInfoIndex = 0x0d
+
 // The opcode table contains all opcode-related information that the parser knows.
 // This table is modeled after a similar table used in the acpica implementation.
 var opcodeTable = []opcodeInfo{

@@ -1,6 +1,8 @@
 package entity
 
-import "gopheros/kernel"
+import (
+	"gopheros/kernel"
+)
 
 // Entity is an interface implemented by all AML entities.
 type Entity interface {
@@ -731,6 +733,9 @@ type Method struct {
 	ArgCount   uint8
 	Serialized bool
 	SyncLevel  uint8
+
+	BodyStartOffset uint32
+	BodyEndOffset   uint32
 }
 
 // NewMethod creats a new AML method entity.
@@ -775,35 +780,19 @@ func (ent *Method) SetArg(argIndex uint8, arg interface{}) bool {
 type Invocation struct {
 	Generic
 
-	MethodName string
-	MethodDef  *Method
+	Method *Method
 }
 
 // NewInvocation creates a new method invocation object.
-func NewInvocation(tableHandle uint8, name string, args []interface{}) *Invocation {
+func NewInvocation(tableHandle uint8, method *Method, args []interface{}) *Invocation {
 	return &Invocation{
 		Generic: Generic{
 			op:          OpMethodInvocation,
 			tableHandle: tableHandle,
 			args:        args,
 		},
-		MethodName: name,
+		Method: method,
 	}
-}
-
-// ResolveSymbolRefs receives as input the root of the AML entity tree and
-// attempts to resolve any symbol references using the scope searching rules
-// defined by the ACPI spec.
-func (ent *Invocation) ResolveSymbolRefs(rootNS Container) *kernel.Error {
-	var ok bool
-	if ent.MethodDef, ok = FindInScope(ent.Parent(), rootNS, ent.MethodName).(*Method); !ok {
-		return &kernel.Error{
-			Module:  "acpi_aml_vm",
-			Message: "could not resolve method invocation to: " + ent.MethodName + "; parent: " + ent.Parent().Name(),
-		}
-	}
-
-	return nil
 }
 
 // Device defines an AML device entity.
