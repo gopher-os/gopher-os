@@ -1,4 +1,4 @@
-package aml
+package parser
 
 import (
 	"errors"
@@ -80,5 +80,8 @@ func (r *amlStreamReader) Offset() uint32 {
 
 // SetOffset sets the reader offset to the supplied value.
 func (r *amlStreamReader) SetOffset(off uint32) {
+	if max := uint32(len(r.data)); off > max {
+		off = max
+	}
 	r.offset = off
 }

@@ -1,6 +1,7 @@
-package aml
+package parser
 
 import (
+	"gopheros/device/acpi/aml/entity"
 	"gopheros/device/acpi/table"
 	"gopheros/kernel"
 	"gopheros/kernel/kfmt"
@@ -13,28 +14,30 @@ var (
 	errResolvingEntities = &kernel.Error{Module: "acpi_aml_parser", Message: "AML bytecode contains unresolvable entities"}
 )
 
+type parseOpt uint8
+
+const (
+	parseOptSkipMethodBodies parseOpt = iota
+	parseOptParseMethodBodies
+)
+
 // Parser implements an AML parser.
 type Parser struct {
 	r           amlStreamReader
 	errWriter   io.Writer
-	root        ScopeEntity
-	scopeStack  []ScopeEntity
+	root        entity.Container
+	scopeStack  []entity.Container
 	tableName   string
 	tableHandle uint8
 
-	// methodArgCount is initialized in a pre-parse step with the names and expected
-	// number of args for each function declaration. This is required as function
-	// invocations do not employ any mechanism to indicate the number of args that
-	// need to be parsed. Moreover, the spec allows for forward function declarations.
-	methodArgCount map[string]uint8
+	parseOptions parseOpt
 }
 
 // NewParser returns a new AML parser instance.
-func NewParser(errWriter io.Writer, rootEntity ScopeEntity) *Parser {
+func NewParser(errWriter io.Writer, rootEntity entity.Container) *Parser {
 	return &Parser{
-		errWriter:      errWriter,
-		root:           rootEntity,
-		methodArgCount: make(map[string]uint8),
+		errWriter: errWriter,
+		root:      rootEntity,
 	}
 }
 
@@ -50,12 +53,9 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 		uint32(unsafe.Sizeof(table.SDTHeader{})),
 	)
 
-	// Pass 1: scan bytecode and locate all method declarations. This allows us to
-	// properly parse the arguments to method invocations at pass 2 even if the
-	// the name of the invoked method is a forward reference.
-	p.detectMethodDeclarations()
-
-	// Pass 2: decode bytecode and build entitites
+	// Pass 1: decode bytecode and build entitites without recursing into
+	// function bodies.
+	p.parseOptions = parseOptSkipMethodBodies
 	p.scopeStack = nil
 	p.scopeEnter(p.root)
 	if !p.parseObjList(header.Length) {
@@ -65,25 +65,33 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	}
 	p.scopeExit()
 
-	// Pass 3: check parents and resolve forward references
+	// Pass 2: parse method bodies, check entity parents and resolve all
+	// symbol references
 	var resolveFailed bool
-	scopeVisit(0, p.root, EntityTypeAny, func(_ int, ent Entity) bool {
-		// Skip method bodies; their contents will be lazily resolved by the interpreter
-		if _, isMethod := ent.(*Method); isMethod {
+	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
+		if method, isMethod := ent.(*entity.Method); isMethod {
+			resolveFailed = resolveFailed || !p.parseMethodBody(method)
+
+			// Don't recurse into method bodies; their contents
+			// will be lazilly resolved by the VM
 			return false
 		}
 
 		// Populate parents for any entity args that are also entities but are not
 		// linked to a parent (e.g. a package inside a named entity).
-		for _, arg := range ent.getArgs() {
-			if argEnt, isArgEnt := arg.(Entity); isArgEnt && argEnt.Parent() == nil {
-				argEnt.setParent(ent.Parent())
+		for _, arg := range ent.Args() {
+			if argEnt, isArgEnt := arg.(entity.Entity); isArgEnt && argEnt.Parent() == nil {
+				argEnt.SetParent(ent.Parent())
 			}
 		}
 
-		if res, ok := ent.(resolver); ok && !res.Resolve(p.errWriter, p.root) {
-			resolveFailed = true
-			return false
+		// Resolve any symbol references
+		if lazyRef, ok := ent.(entity.LazyRefResolver); ok {
+			if err := lazyRef.ResolveSymbolRefs(p.root); err != nil {
+				kfmt.Fprintf(p.errWriter, "%s\n", err.Message)
+				resolveFailed = true
+				return false
+			}
 		}
 
 		return true
@@ -94,57 +102,6 @@ func (p *Parser) ParseAML(tableHandle uint8, tableName string, header *table.SDT
 	}
 
 	return nil
-}
-
-// detectMethodDeclarations scans the AML byte-stream looking for function
-// declarations.  For each discovered function, the method will parse its flags
-// and update the methodArgCount map with the number of required arguments.
-func (p *Parser) detectMethodDeclarations() {
-	var (
-		next              *opcodeInfo
-		method            string
-		startOffset       = p.r.Offset()
-		curOffset, pkgLen uint32
-		flags             uint64
-		ok                bool
-	)
-
-	for !p.r.EOF() {
-		if next, ok = p.nextOpcode(); !ok {
-			// Skip one byte to the right and try again. Maybe we are stuck inside
-			// the contents of a string or buffer
-			_, _ = p.r.ReadByte()
-			continue
-		}
-
-		if next.op != opMethod {
-			continue
-		}
-
-		// Parse pkg len; if this fails then this is not a method declaration
-		curOffset = p.r.Offset()
-		if pkgLen, ok = p.parsePkgLength(); !ok {
-			continue
-		}
-
-		// Parse method name
-		if method, ok = p.parseNameString(); !ok {
-			continue
-		}
-
-		// The next byte encodes the method flags which also contains the arg count
-		// at bits 0:2
-		if flags, ok = p.parseNumConstant(1); !ok {
-			continue
-		}
-
-		p.methodArgCount[method] = uint8(flags) & 0x7
-
-		// At this point we can use the pkg length to skip over the term list
-		p.r.SetOffset(curOffset + pkgLen)
-	}
-
-	p.r.SetOffset(startOffset)
 }
 
 // parseObjList tries to parse an AML object list. Object lists are usually
@@ -169,8 +126,7 @@ func (p *Parser) parseObj() bool {
 	)
 
 	// If we cannot decode the next opcode then this may be a method
-	// invocation or a name reference. If neither is the case, we need to
-	// rewind the stream and parse a method invocation before giving up.
+	// invocation or a name reference.
 	curOffset = p.r.Offset()
 	if info, ok = p.nextOpcode(); !ok {
 		p.r.SetOffset(curOffset)
@@ -187,11 +143,11 @@ func (p *Parser) parseObj() bool {
 	}
 
 	// If we encounter a named scope we need to look it up and parse the arg list relative to it
-	switch info.op {
-	case opScope:
+	switch {
+	case info.op == entity.OpScope:
 		return p.parseScope(curOffset + pkgLen)
-	case opDevice, opMethod:
-		return p.parseNamespacedObj(info.op, curOffset+pkgLen)
+	case info.flags.is(opFlagNamed | opFlagScoped):
+		return p.parseNamespacedObj(info, curOffset+pkgLen)
 	}
 
 	// Create appropriate object for opcode type and attach it to current scope unless it is
@@ -217,33 +173,22 @@ func (p *Parser) parseObj() bool {
 }
 
 // finalizeObj applies post-parse logic for special object types.
-func (p *Parser) finalizeObj(op opcode, obj Entity) bool {
-	obj.setTableHandle(p.tableHandle)
-
+func (p *Parser) finalizeObj(op entity.AMLOpcode, obj entity.Entity) bool {
 	switch op {
-	case opElse:
+	case entity.OpElse:
 		// If this is an else block we need to append it as an argument to the
 		// If block
 		// Pop Else block of the current scope
 		curScope := p.scopeCurrent()
-		curScope.removeChild(curScope.lastChild())
-		prevObj := curScope.lastChild()
-		if prevObj.getOpcode() != opIf {
+		curScope.Remove(curScope.Last())
+		prevObj := curScope.Last()
+		if prevObj.Opcode() != entity.OpIf {
 			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] encountered else block without a matching if block\n", p.tableName, p.r.Offset())
 			return false
 		}
 
 		// If predicate(0) then(1) else(2)
-		prevObj.setArg(2, obj)
-	case opDevice:
-		// Build method map
-		dev := obj.(*Device)
-		dev.methodMap = make(map[string]*Method)
-		scopeVisit(0, dev, EntityTypeMethod, func(_ int, ent Entity) bool {
-			method := ent.(*Method)
-			dev.methodMap[method.name] = method
-			return false
-		})
+		prevObj.SetArg(2, obj)
 	}
 
 	return true
@@ -262,14 +207,14 @@ func (p *Parser) parseScope(maxReadOffset uint32) bool {
 		return false
 	}
 
-	target := scopeFind(p.scopeCurrent(), p.root, name)
+	target := entity.FindInScope(p.scopeCurrent(), p.root, name)
 	if target == nil {
 		kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] undefined scope: %s\n", p.tableName, p.r.Offset(), name)
 		return false
 	}
 
-	switch target.getOpcode() {
-	case opDevice, opProcessor, opThermalZone, opPowerRes:
+	switch target.Opcode() {
+	case entity.OpDevice, entity.OpProcessor, entity.OpThermalZone, entity.OpPowerRes:
 		// ok
 	default:
 		// Only allow if this is a named scope
@@ -279,7 +224,7 @@ func (p *Parser) parseScope(maxReadOffset uint32) bool {
 		}
 	}
 
-	p.scopeEnter(target.(ScopeEntity))
+	p.scopeEnter(target.(entity.Container))
 	ok = p.parseObjList(maxReadOffset)
 	p.scopeExit()
 
@@ -287,48 +232,50 @@ func (p *Parser) parseScope(maxReadOffset uint32) bool {
 }
 
 // parseNamespacedObj reads a scope target name from the AML bytestream,
-// attaches the device or method (depending on the opcode) object to the
-// correct parent scope, enters the device scope and parses the object list
-// contained in the device definition.
-func (p *Parser) parseNamespacedObj(op opcode, maxReadOffset uint32) bool {
+// attaches the appropriate object depending on the opcode to the correct
+// parent scope and then parses any contained objects. The contained objects
+// will be appended inside the newly constructed scope.
+func (p *Parser) parseNamespacedObj(info *opcodeInfo, maxReadOffset uint32) bool {
 	scopeExpr, ok := p.parseNameString()
 	if !ok {
 		return false
 	}
 
-	parent, name := scopeResolvePath(p.scopeCurrent(), p.root, scopeExpr)
+	parent, name := entity.ResolveScopedPath(p.scopeCurrent(), p.root, scopeExpr)
 	if parent == nil {
 		kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] undefined scope target: %s (current scope: %s)\n", p.tableName, p.r.Offset(), scopeExpr, p.scopeCurrent().Name())
 		return false
 	}
 
-	var obj ScopeEntity
-	switch op {
-	case opDevice:
-		obj = &Device{scopeEntity: scopeEntity{name: name}}
-	case opMethod:
-		m := &Method{scopeEntity: scopeEntity{name: name}}
-
-		flags, flagOk := p.parseNumConstant(1)
-		if !flagOk {
-			return false
-		}
-		m.argCount = (uint8(flags) & 0x7)           // bits[0:2]
-		m.serialized = (uint8(flags)>>3)&0x1 == 0x1 // bit 3
-		m.syncLevel = (uint8(flags) >> 4) & 0xf     // bits[4:7]
-
-		obj = m
+	var obj entity.Container
+	switch info.op {
+	case entity.OpDevice:
+		obj = entity.NewDevice(p.tableHandle, name)
+	case entity.OpProcessor:
+		obj = entity.NewProcessor(p.tableHandle, name)
+	case entity.OpPowerRes:
+		obj = entity.NewPowerResource(p.tableHandle, name)
+	case entity.OpThermalZone:
+		obj = entity.NewThermalZone(p.tableHandle, name)
+	case entity.OpMethod:
+		obj = entity.NewMethod(p.tableHandle, name)
+	default:
+		kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unsupported namespaced op: %s (current scope: %s)\n", p.tableName, p.r.Offset(), info.op.String(), p.scopeCurrent().Name())
+		return false
 	}
 
+	// Parse any args that follow the name. The last arg is always an ArgTermList
 	parent.Append(obj)
-	p.scopeEnter(obj)
-	ok = p.parseObjList(maxReadOffset)
-	p.scopeExit()
+	for argIndex := uint8(1); argIndex < info.argFlags.argCount(); argIndex++ {
+		if !p.parseArg(info, obj, argIndex, info.argFlags.arg(argIndex), maxReadOffset) {
+			return false
+		}
+	}
 
-	return ok && p.finalizeObj(op, obj)
+	return ok && p.finalizeObj(info.op, obj)
 }
 
-func (p *Parser) parseArg(info *opcodeInfo, obj Entity, argIndex uint8, argType opArgFlag, maxReadOffset uint32) bool {
+func (p *Parser) parseArg(info *opcodeInfo, obj entity.Entity, argIndex uint8, argType opArgFlag, maxReadOffset uint32) bool {
 	var (
 		arg interface{}
 		ok  bool
@@ -356,22 +303,33 @@ func (p *Parser) parseArg(info *opcodeInfo, obj Entity, argIndex uint8, argType 
 	case opArgTarget:
 		arg, ok = p.parseTarget()
 	case opArgTermList:
+		// If this is a method and the SkipMethodBodies option is set
+		// then record the body start and end offset so we can parse
+		// it at a later stage.
+		if method, isMethod := obj.(*entity.Method); isMethod && p.parseOptions == parseOptSkipMethodBodies {
+			method.BodyStartOffset = p.r.Offset()
+			method.BodyEndOffset = maxReadOffset
+			p.r.SetOffset(maxReadOffset)
+			return true
+		}
+
 		// If object is a scoped entity enter it's scope before parsing
 		// the term list. Otherwise, create an unnamed scope, attach it
 		// as the next argument to obj and enter that.
-		if s, isScopeEnt := obj.(ScopeEntity); isScopeEnt {
+		if s, isScopeEnt := obj.(entity.Container); isScopeEnt {
 			p.scopeEnter(s)
 		} else {
-			ns := &scopeEntity{op: opScope}
+			// Create an unnamed scope (e.g if, else, while scope)
+			ns := entity.NewScope(info.op, p.tableHandle, "")
 			p.scopeEnter(ns)
-			obj.setArg(argIndex, ns)
+			obj.SetArg(argIndex, ns)
 		}
 
 		ok = p.parseObjList(maxReadOffset)
 		p.scopeExit()
 		return ok
 	case opArgFieldList:
-		return p.parseFieldList(info.op, obj.getArgs(), maxReadOffset)
+		return p.parseFieldList(obj, maxReadOffset)
 	case opArgByteList:
 		var bl []byte
 		for p.r.Offset() < maxReadOffset {
@@ -388,46 +346,88 @@ func (p *Parser) parseArg(info *opcodeInfo, obj Entity, argIndex uint8, argType 
 		return false
 	}
 
-	return obj.setArg(argIndex, arg)
+	return obj.SetArg(argIndex, arg)
 }
 
-func (p *Parser) parseArgObj() (Entity, bool) {
+func (p *Parser) parseArgObj() (entity.Entity, bool) {
 	if ok := p.parseObj(); !ok {
 		return nil, false
 	}
 
 	curScope := p.scopeCurrent()
-	obj := curScope.lastChild()
-	curScope.removeChild(obj)
+	obj := curScope.Last()
+	curScope.Remove(obj)
 	return obj, true
 }
 
-func (p *Parser) makeObjForOpcode(info *opcodeInfo) Entity {
-	var obj Entity
+func (p *Parser) makeObjForOpcode(info *opcodeInfo) entity.Entity {
+	var obj entity.Entity
 
 	switch {
-	case info.op == opOpRegion:
-		obj = new(regionEntity)
-	case info.op == opBuffer:
-		obj = new(bufferEntity)
-	case info.op == opMutex:
-		obj = new(mutexEntity)
-	case info.op == opEvent:
-		obj = new(eventEntity)
-	case opIsBufferField(info.op):
-		obj = new(bufferFieldEntity)
+	case info.op == entity.OpOpRegion:
+		obj = entity.NewRegion(p.tableHandle)
+	case info.op == entity.OpBuffer:
+		obj = entity.NewBuffer(p.tableHandle)
+	case info.op == entity.OpMutex:
+		obj = entity.NewMutex(p.tableHandle)
+	case info.op == entity.OpEvent:
+		obj = entity.NewEvent(p.tableHandle)
+	case info.op == entity.OpField:
+		obj = entity.NewField(p.tableHandle)
+	case info.op == entity.OpIndexField:
+		obj = entity.NewIndexField(p.tableHandle)
+	case info.op == entity.OpBankField:
+		obj = entity.NewBankField(p.tableHandle)
+	case info.op == entity.OpCreateField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 0)
+	case info.op == entity.OpCreateBitField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 1)
+	case info.op == entity.OpCreateByteField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 8)
+	case info.op == entity.OpCreateWordField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 16)
+	case info.op == entity.OpCreateDWordField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 32)
+	case info.op == entity.OpCreateQWordField:
+		obj = entity.NewBufferField(info.op, p.tableHandle, 64)
+	case info.op == entity.OpZero:
+		obj = entity.NewConst(info.op, p.tableHandle, uint64(0))
+	case info.op == entity.OpOne:
+		obj = entity.NewConst(info.op, p.tableHandle, uint64(1))
+	case info.op == entity.OpOnes:
+		obj = entity.NewConst(info.op, p.tableHandle, uint64((1<<64)-1))
 	case info.flags.is(opFlagConstant):
-		obj = new(constEntity)
+		obj = entity.NewConst(info.op, p.tableHandle, nil) // will be parsed as an arg
+	case info.op == entity.OpPackage || info.op == entity.OpVarPackage:
+		obj = entity.NewPackage(info.op, p.tableHandle)
 	case info.flags.is(opFlagScoped):
-		obj = new(scopeEntity)
+		obj = entity.NewScope(info.op, p.tableHandle, "")
 	case info.flags.is(opFlagNamed):
-		obj = new(namedEntity)
+		obj = entity.NewGenericNamed(info.op, p.tableHandle)
 	default:
-		obj = new(unnamedEntity)
+		obj = entity.NewGeneric(info.op, p.tableHandle)
 	}
 
-	obj.setOpcode(info.op)
 	return obj
+}
+
+// parseMethodBody parses the entities that make up a method's body. After the
+// entire AML tree has been parsed, the parser makes a second pass and calls
+// parseMethodBody for each Method entity.
+//
+// By deferring the parsing of the method body, we ensure that the parser can
+// lookup the method declarations (even if forward declarations are used) for
+// each method invocation. As method declarations contain information about the
+// expected argument count, the parser can use this information to properly
+// parse the invocation arguments. For more details see: parseNamedRef
+func (p *Parser) parseMethodBody(method *entity.Method) bool {
+	p.parseOptions = parseOptParseMethodBodies
+	p.scopeEnter(method)
+	p.r.SetOffset(method.BodyStartOffset)
+	ok := p.parseArg(&opcodeTable[methodOpInfoIndex], method, 2, opArgTermList, method.BodyEndOffset)
+	p.scopeExit()
+
+	return ok
 }
 
 // parseNamedRef attempts to parse either a method invocation or a named
@@ -444,29 +444,31 @@ func (p *Parser) parseNamedRef() bool {
 		return false
 	}
 
-	var (
-		curOffset uint32
-		argIndex  uint8
-		arg       Entity
-		argList   []interface{}
-	)
+	// Check if this is a method invocation
+	ent := entity.FindInScope(p.scopeCurrent(), p.root, name)
+	if methodDef, isMethod := ent.(*entity.Method); isMethod {
+		var (
+			curOffset uint32
+			argIndex  uint8
+			arg       entity.Entity
+			argList   []interface{}
+		)
 
-	if argCount, isMethod := p.methodArgCount[name]; isMethod {
-		for argIndex < argCount && !p.r.EOF() {
+		for argIndex < methodDef.ArgCount && !p.r.EOF() {
 			// Peek next opcode
 			curOffset = p.r.Offset()
 			nextOpcode, ok := p.nextOpcode()
 			p.r.SetOffset(curOffset)
 
 			switch {
-			case ok && (opIsType2(nextOpcode.op) || opIsArg(nextOpcode.op) || opIsDataObject(nextOpcode.op)):
+			case ok && (entity.OpIsType2(nextOpcode.op) || entity.OpIsArg(nextOpcode.op) || entity.OpIsDataObject(nextOpcode.op)):
 				arg, ok = p.parseArgObj()
 			default:
 				// It may be a nested invocation or named ref
 				ok = p.parseNamedRef()
 				if ok {
-					arg = p.scopeCurrent().lastChild()
-					p.scopeCurrent().removeChild(arg)
+					arg = p.scopeCurrent().Last()
+					p.scopeCurrent().Remove(arg)
 				}
 			}
 
@@ -481,19 +483,16 @@ func (p *Parser) parseNamedRef() bool {
 		}
 
 		// Check whether all expected arguments have been parsed
-		if argIndex != argCount {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unexpected arglist end for method %s invocation: expected %d; got %d\n", p.tableName, p.r.Offset(), name, argCount, argIndex)
+		if argIndex != methodDef.ArgCount {
+			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d] unexpected arglist end for method %s invocation: expected %d; got %d\n", p.tableName, p.r.Offset(), name, methodDef.ArgCount, argIndex)
 			return false
 		}
 
-		return p.scopeCurrent().Append(&methodInvocationEntity{
-			unnamedEntity: unnamedEntity{args: argList},
-			methodName:    name,
-		})
+		return p.scopeCurrent().Append(entity.NewInvocation(p.tableHandle, methodDef, argList))
 	}
 
 	// Otherwise this is a reference to a named entity
-	return p.scopeCurrent().Append(&namedReference{targetName: name})
+	return p.scopeCurrent().Append(entity.NewReference(p.tableHandle, name))
 }
 
 func (p *Parser) nextOpcode() (*opcodeInfo, bool) {
@@ -533,68 +532,29 @@ func (p *Parser) nextOpcode() (*opcodeInfo, bool) {
 // AccessField := 0x1 AccessType AccessAttrib
 // ConnectField := 0x02 NameString | 0x02 BufferData
 // ExtendedAccessField := 0x3 AccessType ExtendedAccessType AccessLength
-func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uint32) bool {
+func (p *Parser) parseFieldList(fieldEnt entity.Entity, maxReadOffset uint32) bool {
 	var (
-		// for fieldUnit, name0 is the region name and name1 is not used;
-		// for indexField,
-		name0, name1 string
-		flags        uint64
+		ok bool
 
-		ok              bool
-		bitWidth        uint32
-		curBitOffset    uint32
-		accessAttrib    FieldAccessAttrib
-		accessByteCount uint8
-		unitName        string
-	)
+		accessType entity.FieldAccessType
 
-	switch op {
-	case opField: // Field := PkgLength Region AccessFlags FieldList
-		if len(args) != 2 {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d, opcode 0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
-			return false
-		}
-
-		name0, ok = args[0].(string)
-		if !ok {
-			return false
-		}
-
-		flags, ok = args[1].(uint64)
-		if !ok {
-			return false
-		}
-	case opIndexField: // Field := PkgLength IndexFieldName DataFieldName AccessFlags FieldList
-		if len(args) != 3 {
-			kfmt.Fprintf(p.errWriter, "[table: %s, offset: %d, opcode 0x%2x] invalid arg count: %d\n", p.tableName, p.r.Offset(), uint32(op), len(args))
-			return false
-		}
-
-		name0, ok = args[0].(string)
-		if !ok {
-			return false
-		}
-
-		name1, ok = args[1].(string)
-		if !ok {
-			return false
-		}
-
-		flags, ok = args[2].(uint64)
-		if !ok {
-			return false
-		}
-	}
-
-	// Decode flags
-	accessType := FieldAccessType(flags & 0xf)        // access type; bits[0:3]
-	lock := (flags>>4)&0x1 == 0x1                     // lock; bit 4
-	updateRule := FieldUpdateRule((flags >> 5) & 0x3) // update rule; bits[5:6]
-
-	var (
+		bitWidth           uint32
+		curBitOffset       uint32
 		connectionName     string
-		resolvedConnection Entity
+		unitName           string
+		resolvedConnection entity.Entity
+		accessAttrib       entity.FieldAccessAttrib
+		accessByteCount    uint8
 	)
+
+	// Load default field access rule; it applies to all field units unless
+	// overridden via a directive in the field unit list
+	if accessProvider, isProvider := fieldEnt.(entity.FieldAccessTypeProvider); isProvider {
+		accessType = accessProvider.DefaultAccessType()
+	} else {
+		// not a field entity
+		return false
+	}
 
 	for p.r.Offset() < maxReadOffset {
 		next, err := p.r.ReadByte()
@@ -616,7 +576,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 			if err != nil {
 				return false
 			}
-			accessType = FieldAccessType(next & 0xf) // access type; bits[0:3]
+			accessType = entity.FieldAccessType(next & 0xf) // access type; bits[0:3]
 
 			attrib, err := p.r.ReadByte()
 			if err != nil {
@@ -626,7 +586,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 			// To specify AccessAttribBytes, RawBytes and RawProcessBytes
 			// the ASL compiler will emit an ExtendedAccessField opcode.
 			accessByteCount = 0
-			accessAttrib = FieldAccessAttrib(attrib)
+			accessAttrib = entity.FieldAccessAttrib(attrib)
 
 			continue
 		case 0x2: // ConnectField => <0x2> NameString> | <0x02> TermObj => Buffer
@@ -643,7 +603,7 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 			if err != nil {
 				return false
 			}
-			accessType = FieldAccessType(next & 0xf) // access type; bits[0:3]
+			accessType = entity.FieldAccessType(next & 0xf) // access type; bits[0:3]
 
 			extAccessAttrib, err := p.r.ReadByte()
 			if err != nil {
@@ -657,11 +617,11 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 
 			switch extAccessAttrib {
 			case 0x0b:
-				accessAttrib = FieldAccessAttribBytes
+				accessAttrib = entity.FieldAccessAttribBytes
 			case 0xe:
-				accessAttrib = FieldAccessAttribRawBytes
+				accessAttrib = entity.FieldAccessAttribRawBytes
 			case 0x0f:
-				accessAttrib = FieldAccessAttribRawProcessBytes
+				accessAttrib = entity.FieldAccessAttribRawProcessBytes
 			}
 		default: // NamedField
 			_ = p.r.UnreadByte()
@@ -675,55 +635,20 @@ func (p *Parser) parseFieldList(op opcode, args []interface{}, maxReadOffset uin
 			}
 
 			// According to the spec, the field elements are should
-			// be visible at the same scope as the Field/IndexField
-			switch op {
-			case opField:
-				p.scopeCurrent().Append(&fieldUnitEntity{
-					fieldEntity: fieldEntity{
-						namedEntity: namedEntity{
-							tableHandle: p.tableHandle,
-							op:          op,
-							name:        unitName,
-						},
-						bitOffset:    curBitOffset,
-						bitWidth:     bitWidth,
-						lock:         lock,
-						updateRule:   updateRule,
-						accessType:   accessType,
-						accessAttrib: accessAttrib,
-						byteCount:    accessByteCount,
-					},
-					connectionName:     connectionName,
-					resolvedConnection: resolvedConnection,
-					regionName:         name0,
-				})
-			case opIndexField:
-				p.scopeCurrent().Append(&indexFieldEntity{
-					fieldEntity: fieldEntity{
-						namedEntity: namedEntity{
-							tableHandle: p.tableHandle,
-							op:          op,
-							name:        unitName,
-						},
-						bitOffset:    curBitOffset,
-						bitWidth:     bitWidth,
-						lock:         lock,
-						updateRule:   updateRule,
-						accessType:   accessType,
-						accessAttrib: accessAttrib,
-						byteCount:    accessByteCount,
-					},
-					connectionName:     connectionName,
-					resolvedConnection: resolvedConnection,
-					indexRegName:       name0,
-					dataRegName:        name1,
-				})
-			}
+			// be visible at the same scope as the Field that declares them
+			unit := entity.NewFieldUnit(p.tableHandle, unitName)
+			unit.Field = fieldEnt
+			unit.AccessType = accessType
+			unit.AccessAttrib = accessAttrib
+			unit.ByteCount = accessByteCount
+			unit.BitOffset = curBitOffset
+			unit.BitWidth = bitWidth
+			unit.ConnectionName = connectionName
+			unit.Connection = resolvedConnection
 
+			p.scopeCurrent().Append(unit)
 			curBitOffset += bitWidth
-
 		}
-
 	}
 
 	return ok && p.r.Offset() == maxReadOffset
@@ -859,10 +784,8 @@ func (p *Parser) parseSimpleName() (interface{}, bool) {
 	var obj interface{}
 
 	switch {
-	case ok && nextOpcode.op >= opLocal0 && nextOpcode.op <= opLocal7:
-		obj, ok = &unnamedEntity{op: nextOpcode.op}, true
-	case ok && nextOpcode.op >= opArg0 && nextOpcode.op <= opArg6:
-		obj, ok = &unnamedEntity{op: nextOpcode.op}, true
+	case ok && entity.OpIsArg(nextOpcode.op):
+		obj, ok = entity.NewGeneric(nextOpcode.op, p.tableHandle), true
 	default:
 		// Rewind and try parsing as NameString
 		p.r.SetOffset(curOffset)
@@ -890,10 +813,10 @@ func (p *Parser) parseTarget() (interface{}, bool) {
 
 	if ok {
 		switch {
-		case nextOpcode.op == opZero: // this is actually a NullName
+		case nextOpcode.op == entity.OpZero: // this is actually a NullName
 			p.r.SetOffset(curOffset + 1)
-			return &constEntity{op: opStringPrefix, val: ""}, true
-		case opIsArg(nextOpcode.op) || nextOpcode.op == opRefOf || nextOpcode.op == opDerefOf || nextOpcode.op == opIndex || nextOpcode.op == opDebug: // LocalObj | ArgObj | Type6 | DebugObj
+			return entity.NewConst(entity.OpStringPrefix, p.tableHandle, ""), true
+		case entity.OpIsArg(nextOpcode.op) || nextOpcode.op == entity.OpRefOf || nextOpcode.op == entity.OpDerefOf || nextOpcode.op == entity.OpIndex || nextOpcode.op == entity.OpDebug: // LocalObj | ArgObj | Type6 | DebugObj
 		default:
 			// Unexpected opcode
 			return nil, false
@@ -905,8 +828,8 @@ func (p *Parser) parseTarget() (interface{}, bool) {
 
 	// In this case, this is either a NameString or a control method invocation.
 	if ok := p.parseNamedRef(); ok {
-		obj := p.scopeCurrent().lastChild()
-		p.scopeCurrent().removeChild(obj)
+		obj := p.scopeCurrent().Last()
+		p.scopeCurrent().Remove(obj)
 		return obj, ok
 	}
 
@@ -996,12 +919,12 @@ func (p *Parser) parseNameString() (string, bool) {
 }
 
 // scopeCurrent returns the currently active scope.
-func (p *Parser) scopeCurrent() ScopeEntity {
+func (p *Parser) scopeCurrent() entity.Container {
 	return p.scopeStack[len(p.scopeStack)-1]
 }
 
 // scopeEnter enters the given scope.
-func (p *Parser) scopeEnter(s ScopeEntity) {
+func (p *Parser) scopeEnter(s entity.Container) {
 	p.scopeStack = append(p.scopeStack, s)
 }
 

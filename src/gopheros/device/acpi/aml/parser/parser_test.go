@@ -1,6 +1,7 @@
-package aml
+package parser
 
 import (
+	"gopheros/device/acpi/aml/entity"
 	"gopheros/device/acpi/table"
 	"io/ioutil"
 	"os"
@@ -23,19 +24,7 @@ func TestParser(t *testing.T) {
 			tableFiles: spec,
 		}
 
-		// Create default scopes
-		rootNS := &scopeEntity{op: opScope, name: `\`}
-		rootNS.Append(&scopeEntity{op: opScope, name: `_GPE`}) // General events in GPE register block
-		rootNS.Append(&scopeEntity{op: opScope, name: `_PR_`}) // ACPI 1.0 processor namespace
-		rootNS.Append(&scopeEntity{op: opScope, name: `_SB_`}) // System bus with all device objects
-		rootNS.Append(&scopeEntity{op: opScope, name: `_SI_`}) // System indicators
-		rootNS.Append(&scopeEntity{op: opScope, name: `_TZ_`}) // ACPI 1.0 thermal zone namespace
-
-		// Inject pre-defined OSPM objects
-		rootNS.Append(&constEntity{name: "_OS_", val: "gopheros"})
-		rootNS.Append(&constEntity{name: "_REV", val: uint64(2)})
-
-		p := NewParser(os.Stderr, rootNS)
+		p := NewParser(os.Stderr, genDefaultScopes())
 
 		for _, tableName := range spec {
 			tableName = strings.Replace(tableName, ".aml", "", -1)
@@ -47,28 +36,78 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestParsingOfMethodBodies(t *testing.T) {
+	var resolver = mockResolver{
+		tableFiles: []string{"parser-testsuite-fwd-decls-DSDT.aml"},
+	}
+
+	p := NewParser(os.Stderr, genDefaultScopes())
+	tableName := strings.Replace(resolver.tableFiles[0], ".aml", "", -1)
+	if err := p.ParseAML(0, tableName, resolver.LookupTable(tableName)); err != nil {
+		t.Fatalf("[%s]: %v", tableName, err)
+	}
+
+	// Collect invocations
+	var invocations []*entity.Invocation
+	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
+		if inv, isInv := ent.(*entity.Invocation); isInv {
+			invocations = append(invocations, inv)
+		}
+		return true
+	})
+
+	specs := []struct {
+		expParentName string
+		expArgCount   int
+	}{
+		// Call to `\NST1`
+		{`\`, 1},
+		// Call to `\_SB.NST1`
+		{`_SB_`, 2},
+		// Call to `\NST1` (first argument of above invocation)
+		{`\`, 1},
+	}
+
+	if exp, got := len(specs), len(invocations); exp != got {
+		t.Fatalf("expected parser to produce %d method invocations; got %d", exp, got)
+	}
+
+	for specIndex, spec := range specs {
+		if got := invocations[specIndex].Method.Parent().Name(); got != spec.expParentName {
+			t.Errorf(
+				"[spec %d] expected invocation to target %s.%s; got %s.%s",
+				specIndex,
+				spec.expParentName, invocations[specIndex].Method.Name(),
+				got, invocations[specIndex].Method.Name(),
+			)
+		}
+
+		if got := len(invocations[specIndex].Args()); got != spec.expArgCount {
+			t.Errorf(
+				"[spec %d] expected invocation to target %s.%s to receive %d args; got %d",
+				specIndex,
+				spec.expParentName, invocations[specIndex].Method.Name(), spec.expArgCount,
+				got,
+			)
+		}
+	}
+}
+
 func TestTableHandleAssignment(t *testing.T) {
 	var resolver = mockResolver{tableFiles: []string{"parser-testsuite-DSDT.aml"}}
 
-	// Create default scopes
-	rootNS := &scopeEntity{op: opScope, name: `\`}
-	rootNS.Append(&scopeEntity{op: opScope, name: `_GPE`}) // General events in GPE register block
-	rootNS.Append(&scopeEntity{op: opScope, name: `_PR_`}) // ACPI 1.0 processor namespace
-	rootNS.Append(&scopeEntity{op: opScope, name: `_SB_`}) // System bus with all device objects
-	rootNS.Append(&scopeEntity{op: opScope, name: `_SI_`}) // System indicators
-	rootNS.Append(&scopeEntity{op: opScope, name: `_TZ_`}) // ACPI 1.0 thermal zone namespace
-
+	rootNS := genDefaultScopes()
 	p := NewParser(ioutil.Discard, rootNS)
 
-	expHandle := uint8(42)
+	expHandle := uint8(0x0f)
 	tableName := "parser-testsuite-DSDT"
 	if err := p.ParseAML(expHandle, tableName, resolver.LookupTable(tableName)); err != nil {
 		t.Error(err)
 	}
 
 	// Drop all entities that were assigned the handle value
-	var unloadList []Entity
-	scopeVisit(0, p.root, EntityTypeAny, func(_ int, ent Entity) bool {
+	var unloadList []entity.Entity
+	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
 		if ent.TableHandle() == expHandle {
 			unloadList = append(unloadList, ent)
 			return false
@@ -78,13 +117,13 @@ func TestTableHandleAssignment(t *testing.T) {
 
 	for _, ent := range unloadList {
 		if p := ent.Parent(); p != nil {
-			p.removeChild(ent)
+			p.Remove(ent)
 		}
 	}
 
 	// We should end up with the original tree
 	var visitedNodes int
-	scopeVisit(0, p.root, EntityTypeAny, func(_ int, ent Entity) bool {
+	entity.Visit(0, p.root, entity.TypeAny, func(_ int, ent entity.Entity) bool {
 		visitedNodes++
 		if ent.TableHandle() == expHandle {
 			t.Errorf("encountered entity that should have been pruned: %#+v", ent)
@@ -102,15 +141,7 @@ func TestParserForwardDeclParsing(t *testing.T) {
 		tableFiles: []string{"parser-testsuite-fwd-decls-DSDT.aml"},
 	}
 
-	// Create default scopes
-	rootNS := &scopeEntity{op: opScope, name: `\`}
-	rootNS.Append(&scopeEntity{op: opScope, name: `_GPE`}) // General events in GPE register block
-	rootNS.Append(&scopeEntity{op: opScope, name: `_PR_`}) // ACPI 1.0 processor namespace
-	rootNS.Append(&scopeEntity{op: opScope, name: `_SB_`}) // System bus with all device objects
-	rootNS.Append(&scopeEntity{op: opScope, name: `_SI_`}) // System indicators
-	rootNS.Append(&scopeEntity{op: opScope, name: `_TZ_`}) // ACPI 1.0 thermal zone namespace
-
-	p := NewParser(ioutil.Discard, rootNS)
+	p := NewParser(ioutil.Discard, genDefaultScopes())
 
 	for _, tableName := range resolver.tableFiles {
 		tableName = strings.Replace(tableName, ".aml", "", -1)
@@ -172,7 +203,7 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("ParseAML errors", func(t *testing.T) {
 		t.Run("parseObjList error", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			// Setup resolver to serve an AML stream containing an invalid opcode
 			header := mockParserPayload(p, []byte{0x5b, 0x00})
@@ -190,12 +221,10 @@ func TestParserErrorHandling(t *testing.T) {
 		})
 
 		t.Run("unresolved entities", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			// Inject a reference entity to the tree
-			p.root.Append(&namedReference{
-				targetName: "UNKNOWN",
-			})
+			p.root.Append(entity.NewReference(42, "UNKNOWN"))
 
 			// Setup resolver to serve an empty AML stream
 			header := mockParserPayload(p, nil)
@@ -208,11 +237,11 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("parseObj errors", func(t *testing.T) {
 		t.Run("parsePkgLength error", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			// Setup resolver to serve an AML stream containing an incomplete
 			// buffer specification
-			header := mockParserPayload(p, []byte{byte(opBuffer)})
+			header := mockParserPayload(p, []byte{byte(entity.OpBuffer)})
 
 			if err := p.ParseAML(uint8(42), "DSDT", header); err == nil {
 				t.Fatal("expected parsePkgLength to return an error")
@@ -220,11 +249,11 @@ func TestParserErrorHandling(t *testing.T) {
 		})
 
 		t.Run("incomplete object list", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			// Setup resolver to serve an AML stream containing an incomplete
 			// buffer arglist specification
-			header := mockParserPayload(p, []byte{byte(opBuffer), 0x10})
+			header := mockParserPayload(p, []byte{byte(entity.OpBuffer), 0x10})
 
 			if err := p.ParseAML(uint8(42), "DSDT", header); err == nil {
 				t.Fatal("expected parsePkgLength to return an error")
@@ -234,13 +263,12 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("finalizeObj errors", func(t *testing.T) {
 		t.Run("else without matching if", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
-			p.root.Append(&constEntity{val: 0x42})
-			p.root.Append(&scopeEntity{op: opElse})
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
+			p.root.Append(entity.NewConst(entity.OpDwordPrefix, 42, uint64(0x42)))
 
 			// Setup resolver to serve an AML stream containing an
 			// empty else statement without a matching if
-			header := mockParserPayload(p, []byte{byte(opElse), 0x0})
+			header := mockParserPayload(p, []byte{byte(entity.OpElse), 0x0})
 
 			if err := p.ParseAML(uint8(42), "DSDT", header); err == nil {
 				t.Fatal("expected finalizeObj to return an error")
@@ -251,10 +279,10 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("parseScope errors", func(t *testing.T) {
 		t.Run("parseNameString error", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			header := mockParserPayload(p, []byte{
-				byte(opScope),
+				byte(entity.OpScope),
 				0x10, // pkglen
 			})
 
@@ -264,10 +292,10 @@ func TestParserErrorHandling(t *testing.T) {
 		})
 
 		t.Run("unknown scope", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			header := mockParserPayload(p, []byte{
-				byte(opScope),
+				byte(entity.OpScope),
 				0x10, // pkglen
 				'F', 'O', 'O', 'F',
 			})
@@ -278,10 +306,10 @@ func TestParserErrorHandling(t *testing.T) {
 		})
 
 		t.Run("nameless scope", func(t *testing.T) {
-			p.root = &scopeEntity{}
+			p.root = entity.NewScope(entity.OpScope, 42, ``)
 
 			header := mockParserPayload(p, []byte{
-				byte(opScope),
+				byte(entity.OpScope),
 				0x02, // pkglen
 				'\\', // scope name: "\" (root scope)
 				0x00, // null string
@@ -295,58 +323,76 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("parseNamespacedObj errors", func(t *testing.T) {
 		t.Run("parseNameString error", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			mockParserPayload(p, nil)
 
-			if p.parseNamespacedObj(opDevice, 10) {
+			devInfo := &opcodeTable[0x6a]
+			if p.parseNamespacedObj(devInfo, 10) {
 				t.Fatal("expected parseNamespacedObj to return false")
 			}
 		})
 
 		t.Run("scope lookup error", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			header := mockParserPayload(p, []byte{'^', 'F', 'A', 'B', 'C'})
 
 			p.scopeEnter(p.root)
-			if p.parseNamespacedObj(opDevice, header.Length) {
+			devInfo := &opcodeTable[0x6a]
+			if p.parseNamespacedObj(devInfo, header.Length) {
 				t.Fatal("expected parseNamespacedObj to return false")
 			}
 		})
 
-		t.Run("error parsing method arg count", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
+		t.Run("unsupported namespaced entity", func(t *testing.T) {
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 			header := mockParserPayload(p, []byte{'F', 'A', 'B', 'C'})
 
 			p.scopeEnter(p.root)
-			if p.parseNamespacedObj(opMethod, header.Length) {
+
+			// We just pass a random non-namespaced opcode table entry to parseNamespacedObj
+			zeroInfo := &opcodeTable[0x00]
+			if p.parseNamespacedObj(zeroInfo, header.Length) {
+				t.Fatal("expected parseNamespacedObj to return false")
+			}
+		})
+
+		t.Run("error parsing args after name", func(t *testing.T) {
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
+
+			header := mockParserPayload(p, []byte{'F', 'A', 'B', 'C'})
+
+			p.scopeEnter(p.root)
+			methodInfo := &opcodeTable[0x0d]
+			if p.parseNamespacedObj(methodInfo, header.Length) {
 				t.Fatal("expected parseNamespacedObj to return false")
 			}
 		})
 	})
 
 	t.Run("parseArg bytelist errors", func(t *testing.T) {
-		p.root = &scopeEntity{op: opScope, name: `\`}
+		p.root = entity.NewScope(entity.OpScope, 42, `\`)
 
 		mockParserPayload(p, nil)
 
-		if p.parseArg(new(opcodeInfo), new(unnamedEntity), 0, opArgByteList, 42) {
+		if p.parseArg(new(opcodeInfo), entity.NewGeneric(0, 0), 0, opArgByteList, 42) {
 			t.Fatal("expected parseNamespacedObj to return false")
 		}
 	})
 
 	t.Run("parseNamedRef errors", func(t *testing.T) {
-		t.Run("missing args", func(t *testing.T) {
-			p.root = &scopeEntity{op: opScope, name: `\`}
-			p.methodArgCount = map[string]uint8{
-				"MTHD": 10,
-			}
+		t.Run("incorrect args for method", func(t *testing.T) {
+			p.root = entity.NewScope(entity.OpScope, 42, `\`)
+
+			methodDecl := entity.NewMethod(42, "MTHD")
+			methodDecl.ArgCount = 5
+			p.root.Append(methodDecl)
 
 			mockParserPayload(p, []byte{
 				'M', 'T', 'H', 'D',
-				byte(opIf), // Incomplete type2 opcode
+				byte(entity.OpIf), // Incomplete type2 opcode
 			})
 
 			p.scopeEnter(p.root)
@@ -358,123 +404,149 @@ func TestParserErrorHandling(t *testing.T) {
 
 	t.Run("parseFieldList errors", func(t *testing.T) {
 		specs := []struct {
-			op            opcode
+			op            entity.AMLOpcode
 			args          []interface{}
 			maxReadOffset uint32
 			payload       []byte
 		}{
-			// Invalid arg count for opField
+			// Invalid arg count for entity.OpField
 			{
-				opField,
+				entity.OpField,
 				nil,
 				0,
 				nil,
 			},
-			// Wrong arg type for opField
+			// Wrong arg type for entity.OpField
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{0, uint64(42)},
 				0,
 				nil,
 			},
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint32(42)},
 				0,
 				nil,
 			},
-			// Invalid arg count for opIndexField
+			// Invalid arg count for entity.OpIndexField
 			{
-				opIndexField,
+				entity.OpIndexField,
 				nil,
 				0,
 				nil,
 			},
-			// Wrong arg type for opIndexField
+			// Wrong arg type for entity.OpIndexField
 			{
-				opIndexField,
+				entity.OpIndexField,
 				[]interface{}{0, "FLD1", "FLD2"},
 				0,
 				nil,
 			},
 			{
-				opIndexField,
+				entity.OpIndexField,
 				[]interface{}{"FLD0", 0, "FLD2"},
 				0,
 				nil,
 			},
 			{
-				opIndexField,
+				entity.OpIndexField,
+				[]interface{}{"FLD0", "FLD1", 0},
+				0,
+				nil,
+			},
+			// Invalid arg count for entity.OpBankField
+			{
+				entity.OpBankField,
+				nil,
+				0,
+				nil,
+			},
+			// Wrong arg type for entity.OpBankField
+			{
+				entity.OpBankField,
+				[]interface{}{0, "FLD1", "FLD2"},
+				0,
+				nil,
+			},
+			{
+				entity.OpBankField,
+				[]interface{}{"FLD0", 0, "FLD2"},
+				0,
+				nil,
+			},
+			{
+				entity.OpBankField,
 				[]interface{}{"FLD0", "FLD1", 0},
 				0,
 				nil,
 			},
 			// unexpected EOF parsing fields
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				nil,
 			},
 			// reserved field (0x00) with missing pkgLen
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x00},
 			},
 			// access field (0x01) with missing accessType
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x01},
 			},
 			// access field (0x01) with missing attribute byte
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x01, 0x01},
 			},
 			// connect field (0x02) with incomplete TermObject => Buffer arg
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
-				[]byte{0x02, byte(opBuffer)},
+				[]byte{0x02, byte(entity.OpBuffer)},
 			},
 			// extended access field (0x03) with missing ext. accessType
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x03},
 			},
 			// extended access field (0x03) with missing ext. attribute byte
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x03, 0x01},
 			},
 			// extended access field (0x03) with missing access byte count value
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0x03, 0x01, 0x02},
 			},
 			// named field with invalid name
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{0xff},
 			},
 			// named field with invalid pkgLen
 			{
-				opField,
+				entity.OpField,
 				[]interface{}{"FLD0", uint64(42)},
 				128,
 				[]byte{'N', 'A', 'M', 'E'},
@@ -484,10 +556,16 @@ func TestParserErrorHandling(t *testing.T) {
 		for specIndex, spec := range specs {
 			mockParserPayload(p, spec.payload)
 
-			if p.parseFieldList(spec.op, spec.args, spec.maxReadOffset) {
+			if p.parseFieldList(entity.NewField(42), spec.maxReadOffset) {
 				t.Errorf("[spec %d] expected parseFieldLis to return false", specIndex)
 			}
 		}
+
+		t.Run("non-field entity argument", func(t *testing.T) {
+			if p.parseFieldList(entity.NewDevice(42, "DEV0"), 128) {
+				t.Fatal("expected parseFieldList to return false when a non-field argument is passed to it")
+			}
+		})
 	})
 
 	t.Run("parsePkgLength errors", func(t *testing.T) {
@@ -532,7 +610,7 @@ func TestParserErrorHandling(t *testing.T) {
 	t.Run("parseTarget errors", func(t *testing.T) {
 		t.Run("unexpected opcode", func(t *testing.T) {
 			// Unexpected opcode
-			mockParserPayload(p, []byte{byte(opAnd)})
+			mockParserPayload(p, []byte{byte(entity.OpAnd)})
 
 			if _, ok := p.parseTarget(); ok {
 				t.Error("expected parseTarget to return false")
@@ -585,77 +663,6 @@ func TestParserErrorHandling(t *testing.T) {
 	})
 }
 
-func TestDetectMethodDeclarations(t *testing.T) {
-	p := &Parser{
-		errWriter: ioutil.Discard,
-	}
-
-	validMethod := []byte{
-		byte(opMethod),
-		5, // pkgLen
-		'M', 'T', 'H', 'D',
-		2, // flags (2 args)
-	}
-
-	t.Run("success", func(t *testing.T) {
-		mockParserPayload(p, validMethod)
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-
-		argCount, inMap := p.methodArgCount["MTHD"]
-		if !inMap {
-			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
-		}
-
-		if exp := uint8(2); argCount != exp {
-			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
-		}
-	})
-
-	t.Run("bad pkgLen", func(t *testing.T) {
-		mockParserPayload(p, []byte{
-			byte(opMethod),
-			// lead byte bits (6:7) indicate 1 extra byte that is missing
-			byte(1 << 6),
-		})
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-	})
-
-	t.Run("error parsing namestring", func(t *testing.T) {
-		mockParserPayload(p, append([]byte{
-			byte(opMethod),
-			byte(5), // pkgLen
-			10,      // bogus char, not part of namestring
-		}, validMethod...))
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-
-		argCount, inMap := p.methodArgCount["MTHD"]
-		if !inMap {
-			t.Error(`detectMethodDeclarations failed to parse method "MTHD"`)
-		}
-
-		if exp := uint8(2); argCount != exp {
-			t.Errorf(`expected arg count for "MTHD" to be %d; got %d`, exp, argCount)
-		}
-	})
-
-	t.Run("error parsing method flags", func(t *testing.T) {
-		mockParserPayload(p, []byte{
-			byte(opMethod),
-			byte(5), // pkgLen
-			'F', 'O', 'O', 'F',
-			// Missing flag byte
-		})
-
-		p.methodArgCount = make(map[string]uint8)
-		p.detectMethodDeclarations()
-	})
-}
-
 func mockParserPayload(p *Parser, payload []byte) *table.SDTHeader {
 	resolver := fixedPayloadResolver{payload}
 	header := resolver.LookupTable("DSDT")
@@ -678,7 +685,7 @@ type mockResolver struct {
 }
 
 func (m mockResolver) LookupTable(name string) *table.SDTHeader {
-	pathToDumps := pkgDir() + "/../table/tabletest/"
+	pathToDumps := pkgDir() + "/../../table/tabletest/"
 	for _, f := range m.tableFiles {
 		if !strings.Contains(f, name) {
 			continue
@@ -708,4 +715,24 @@ func (f fixedPayloadResolver) LookupTable(name string) *table.SDTHeader {
 	hdr.Length = uint32(len(buf))
 
 	return hdr
+}
+
+func genDefaultScopes() entity.Container {
+	rootNS := entity.NewScope(entity.OpScope, 42, `\`)
+	rootNS.Append(entity.NewScope(entity.OpScope, 42, `_GPE`)) // General events in GPE register block
+	rootNS.Append(entity.NewScope(entity.OpScope, 42, `_PR_`)) // ACPI 1.0 processor namespace
+	rootNS.Append(entity.NewScope(entity.OpScope, 42, `_SB_`)) // System bus with all device objects
+	rootNS.Append(entity.NewScope(entity.OpScope, 42, `_SI_`)) // System indicators
+	rootNS.Append(entity.NewScope(entity.OpScope, 42, `_TZ_`)) // ACPI 1.0 thermal zone namespace
+
+	// Inject pre-defined OSPM objects
+	rootNS.Append(namedConst(entity.NewConst(entity.OpStringPrefix, 42, "gopheros"), "_OS_"))
+	rootNS.Append(namedConst(entity.NewConst(entity.OpStringPrefix, 42, uint64(2)), "_REV"))
+
+	return rootNS
+}
+
+func namedConst(ent *entity.Const, name string) *entity.Const {
+	ent.SetName(name)
+	return ent
 }
