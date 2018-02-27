@@ -130,3 +130,69 @@ const (
 	// Sentinel value to indicate freed objects
 	pOpIntFreedObject = uint16(0xff + 0xff)
 )
+
+// pOpIsLocalArg returns true if this opcode represents any of the supported local
+// function args 0 to 7.
+func pOpIsLocalArg(op uint16) bool {
+	return op >= pOpLocal0 && op <= pOpLocal7
+}
+
+// pOpIsMethodArg returns true if this opcode represents any of the supported
+// input function args 0 to 6.
+func pOpIsMethodArg(op uint16) bool {
+	return op >= pOpArg0 && op <= pOpArg6
+}
+
+// pOpIsArg returns true if this opcode is either a local or a method arg.
+func pOpIsArg(op uint16) bool {
+	return pOpIsLocalArg(op) || pOpIsMethodArg(op)
+}
+
+// pOpIsType2 returns true if this is a Type2Opcode.
+//
+// Grammar:
+// Type2Opcode := DefAcquire | DefAdd | DefAnd | DefBuffer | DefConcat |
+//  DefConcatRes | DefCondRefOf | DefCopyObject | DefDecrement |
+//  DefDerefOf | DefDivide | DefFindSetLeftBit | DefFindSetRightBit |
+//  DefFromBCD | DefIncrement | DefIndex | DefLAnd | DefLEqual |
+//  DefLGreater | DefLGreaterEqual | DefLLess | DefLLessEqual | DefMid |
+//  DefLNot | DefLNotEqual | DefLoadTable | DefLOr | DefMatch | DefMod |
+//  DefMultiply | DefNAnd | DefNOr | DefNot | DefObjectType | DefOr |
+//  DefPackage | DefVarPackage | DefRefOf | DefShiftLeft | DefShiftRight |
+//  DefSizeOf | DefStore | DefSubtract | DefTimer | DefToBCD | DefToBuffer |
+//  DefToDecimalString | DefToHexString | DefToInteger | DefToString |
+//  DefWait | DefXOr
+func pOpIsType2(op uint16) bool {
+	switch op {
+	case pOpAcquire, pOpAdd, pOpAnd, pOpBuffer, pOpConcat,
+		pOpConcatRes, pOpCondRefOf, pOpCopyObject, pOpDecrement,
+		pOpDerefOf, pOpDivide, pOpFindSetLeftBit, pOpFindSetRightBit,
+		pOpFromBCD, pOpIncrement, pOpIndex, pOpLand, pOpLEqual,
+		pOpLGreater, pOpLLess, pOpMid,
+		pOpLnot, pOpLoadTable, pOpLor, pOpMatch, pOpMod,
+		pOpMultiply, pOpNand, pOpNor, pOpNot, pOpObjectType, pOpOr,
+		pOpPackage, pOpVarPackage, pOpRefOf, pOpShiftLeft, pOpShiftRight,
+		pOpSizeOf, pOpStore, pOpSubtract, pOpTimer, pOpToBCD, pOpToBuffer,
+		pOpToDecimalString, pOpToHexString, pOpToInteger, pOpToString,
+		pOpWait, pOpXor:
+		return true
+	default:
+		return false
+	}
+}
+
+// pOpIsDataObject returns true if this opcode is part of a DataObject definition
+//
+// Grammar:
+// DataObject := ComputationalData | DefPackage | DefVarPackage
+// ComputationalData := ByteConst | WordConst | DWordConst | QWordConst | String | ConstObj | RevisionOp | DefBuffer
+// ConstObj := ZeroOp | OneOp | OnesOp
+func pOpIsDataObject(op uint16) bool {
+	switch op {
+	case pOpBytePrefix, pOpWordPrefix, pOpDwordPrefix, pOpQwordPrefix, pOpStringPrefix,
+		pOpZero, pOpOne, pOpOnes, pOpRevision, pOpBuffer, pOpPackage, pOpVarPackage:
+		return true
+	default:
+		return false
+	}
+}
