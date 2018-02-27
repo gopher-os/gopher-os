@@ -106,3 +106,38 @@ func TestOpcodeIsX(t *testing.T) {
 		}
 	}
 }
+
+func TestOpcodeName(t *testing.T) {
+	for specIndex, spec := range pOpcodeTable {
+		if got := pOpcodeName(spec.op); got != spec.opName {
+			t.Errorf("[spec %d] expected OpcodeName(0x%x) to return %q; got %q", specIndex, spec.op, spec.opName, got)
+		}
+	}
+
+	if exp, got := "unknown", pOpcodeName(0xf8); got != exp {
+		t.Fatalf("expected OpcodeName to return %q for unknown opcode; got %q", exp, got)
+	}
+}
+
+func TestOpcodeMap(t *testing.T) {
+	freqs := make(map[uint8]int)
+	for _, tableIndex := range opcodeMap {
+		if tableIndex == badOpcode {
+			continue
+		}
+		freqs[tableIndex]++
+	}
+
+	for _, tableIndex := range extendedOpcodeMap {
+		if tableIndex == badOpcode {
+			continue
+		}
+		freqs[tableIndex]++
+	}
+
+	for tableIndex, freq := range freqs {
+		if freq > 1 {
+			t.Errorf("[index 0x%x] found %d duplicate entries in opcodeMap/extendedOpcodeMap for %s", tableIndex, freq, pOpcodeTable[tableIndex].opName)
+		}
+	}
+}
