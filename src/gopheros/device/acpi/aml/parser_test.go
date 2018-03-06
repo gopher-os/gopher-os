@@ -2,13 +2,93 @@ package aml
 
 import (
 	"bytes"
+	"flag"
+	"fmt"
 	"gopheros/device/acpi/table"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
 )
+
+var (
+	regenExpFiles = flag.Bool("aml-regenerate-parser-exp-files", false, "Regenerate the expected output files for AML parser tests against real AML files")
+)
+
+func TestParser(t *testing.T) {
+	flag.Parse()
+
+	pathToDumps := pkgDir() + "/../table/tabletest/"
+
+	specs := []struct {
+		expTreeContentFile string
+		tableFiles         []string
+	}{
+		{
+			"DSDT-SSDT.exp",
+			[]string{"DSDT.aml", "SSDT.aml"},
+		},
+		{
+			"parser-testsuite-DSDT.exp",
+			[]string{"parser-testsuite-DSDT.aml"},
+		},
+	}
+
+	for _, spec := range specs {
+		t.Run(fmt.Sprintf("parse [%s]", strings.Join(spec.tableFiles, ", ")), func(t *testing.T) {
+			var resolver = mockResolver{
+				pathToDumps: pathToDumps,
+				tableFiles:  spec.tableFiles,
+			}
+
+			tree := NewObjectTree()
+			tree.CreateDefaultScopes(42)
+
+			p := NewParser(&testWriter{t: t}, tree)
+			for tableIndex, tableFile := range spec.tableFiles {
+				tableName := strings.Replace(tableFile, ".aml", "", -1)
+				if err := p.ParseAML(uint8(tableIndex), tableName, resolver.LookupTable(tableName)); err != nil {
+					t.Errorf("[%s]: %v", tableName, err)
+					return
+				}
+			}
+
+			// Pretty-print tree
+			var treeDump bytes.Buffer
+			tree.PrettyPrint(&treeDump)
+
+			// Check if we need to rebuild the exp files
+			pathToExpFile := filepath.Join(pathToDumps, spec.expTreeContentFile)
+			if *regenExpFiles {
+				f, err := os.Create(pathToExpFile)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = f.Close() }()
+
+				if _, err = treeDump.WriteTo(f); err != nil {
+					t.Fatal(err)
+				}
+				t.Logf("regenerated exp file contents: %s", pathToExpFile)
+				return
+			}
+
+			// Read the exp file and compare its contents to the generated dump
+			expDump, err := ioutil.ReadFile(pathToExpFile)
+			if err != nil {
+				t.Fatalf("error opening exp file: %s; try running tests with -aml-regenerate-parser-exp-files", pathToExpFile)
+			}
+
+			if !reflect.DeepEqual(expDump, treeDump.Bytes()) {
+				t.Fatal("parsed tree content does not match expected content")
+			}
+		})
+	}
+}
 
 func TestParseAMLErrors(t *testing.T) {
 	t.Run("parseObjectList failed", func(t *testing.T) {
@@ -902,4 +982,31 @@ func (m mockByteDataResolver) LookupTable(string) *table.SDTHeader {
 	header.Revision = 2
 
 	return header
+}
+
+func pkgDir() string {
+	_, f, _, _ := runtime.Caller(1)
+	return filepath.Dir(f)
+}
+
+type mockResolver struct {
+	pathToDumps string
+	tableFiles  []string
+}
+
+func (m mockResolver) LookupTable(name string) *table.SDTHeader {
+	for _, f := range m.tableFiles {
+		if !strings.Contains(f, name) {
+			continue
+		}
+
+		data, err := ioutil.ReadFile(filepath.Join(m.pathToDumps, f))
+		if err != nil {
+			panic(err)
+		}
+
+		return (*table.SDTHeader)(unsafe.Pointer(&data[0]))
+	}
+
+	return nil
 }
