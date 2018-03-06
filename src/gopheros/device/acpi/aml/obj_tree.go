@@ -1,5 +1,11 @@
 package aml
 
+import (
+	"bytes"
+	"gopheros/kernel/kfmt"
+	"io"
+)
+
 const (
 	// InvalidIndex is a sentinel value used by ObjectTree to indicate that
 	// a returned object index is not valid.
@@ -392,6 +398,200 @@ func (tree *ObjectTree) ArgAt(obj *Object, index uint32) *Object {
 		if argIndex == index {
 			return tree.ObjectAt(siblingIndex)
 		}
+	}
+
+	return nil
+}
+
+// PrettyPrint outputs a pretty-printed version of the AML tree to w.
+func (tree *ObjectTree) PrettyPrint(w io.Writer) {
+	if len(tree.objPool) != 0 {
+		var padBuf bytes.Buffer
+		padBuf.WriteByte(' ')
+		tree.toString(w, &padBuf, 0)
+	}
+}
+
+func (tree *ObjectTree) toString(w io.Writer, padBuf *bytes.Buffer, index uint32) {
+	curObj := tree.ObjectAt(index)
+
+	_, _ = w.Write(padBuf.Bytes())
+	kfmt.Fprintf(w, "+- [%s", pOpcodeName(curObj.opcode))
+
+	if name := nameOf(curObj); len(name) != 0 {
+		kfmt.Fprintf(w, ", name: \"%s\"", name)
+	}
+
+	if curObj.opcode == pOpMethod {
+		kfmt.Fprintf(w, ", argCount: %d", uint8(tree.ArgAt(curObj, 1).value.(uint64)&0x7))
+	}
+
+	kfmt.Fprintf(w, ", table: %d, index: %d, offset: 0x%x", curObj.tableHandle, curObj.index, curObj.amlOffset)
+	kfmt.Fprintf(w, "]")
+
+	if curObj.opcode == pOpIntMethodCall {
+		methodObj := tree.ObjectAt(curObj.value.(uint32))
+		argCount := uint8(tree.ArgAt(methodObj, 1).value.(uint64) & 0x7)
+		kfmt.Fprintf(w, " -> [call to \"%s\", argCount: %d, table: %d, index: %d, offset: 0x%x]", methodObj.name[:], argCount, methodObj.tableHandle, methodObj.index, methodObj.amlOffset)
+	} else if curObj.opcode == pOpIntResolvedNamePath {
+		resolvedObj := tree.ObjectAt(curObj.value.(uint32))
+		kfmt.Fprintf(w, " -> [resolved to \"%s\", table: %d, index: %d, offset: 0x%x]", nameOf(resolvedObj), resolvedObj.tableHandle, resolvedObj.index, resolvedObj.amlOffset)
+	} else if curObj.opcode == pOpIntNamedField {
+		field := curObj.value.(*fieldElement)
+		kfmt.Fprintf(w, " -> [field index: %d, offset(bytes): 0x%x, width(bits): 0x%x, accType: ", field.fieldIndex, field.offset, field.width)
+		switch field.accessType {
+		case 0x00:
+			kfmt.Fprintf(w, "Any")
+		case 0x01:
+			kfmt.Fprintf(w, "Byte")
+		case 0x02:
+			kfmt.Fprintf(w, "Word")
+		case 0x03:
+			kfmt.Fprintf(w, "Dword")
+		case 0x04:
+			kfmt.Fprintf(w, "Qword")
+		case 0x05:
+			kfmt.Fprintf(w, "Buffer, accAttr: ")
+			switch field.accessAttrib {
+			case 0x02:
+				kfmt.Fprintf(w, "Quick")
+			case 0x04:
+				kfmt.Fprintf(w, "SendReceive")
+			case 0x06:
+				kfmt.Fprintf(w, "Byte")
+			case 0x08:
+				kfmt.Fprintf(w, "Word")
+			case 0x0a:
+				kfmt.Fprintf(w, "Block")
+			case 0x0b:
+				kfmt.Fprintf(w, "Bytes(0x%x)", field.accessLength)
+			case 0x0c:
+				kfmt.Fprintf(w, "ProcessCall")
+			case 0x0d:
+				kfmt.Fprintf(w, "BlockProcessCall")
+			case 0x0e:
+				kfmt.Fprintf(w, "RawBytes(0x%x)", field.accessLength)
+			case 0x0f:
+				kfmt.Fprintf(w, "RawProcessBytes(0x%x)", field.accessLength)
+			}
+			/*
+				case 0x40:
+					kfmt.Fprintf(w, "Bytes(0x%x)", field.AccessAttrib)
+				case 0x80:
+					kfmt.Fprintf(w, "RawBytes(0x%x)", field.AccessAttrib)
+				case 0xc0:
+					kfmt.Fprintf(w, "RawProcessBytes(0x%x)", field.AccessAttrib)
+			*/
+		}
+
+		kfmt.Fprintf(w, ", lockType: ")
+		switch field.lockType {
+		case 0x00:
+			kfmt.Fprintf(w, "NoLock")
+		case 0x01:
+			kfmt.Fprintf(w, "Lock")
+		}
+
+		kfmt.Fprintf(w, ", updateType: ")
+		switch field.updateType {
+		case 0x00:
+			kfmt.Fprintf(w, "Preserve")
+		case 0x01:
+			kfmt.Fprintf(w, "WriteAsOnes")
+		case 0x02:
+			kfmt.Fprintf(w, "WriteAsZeroes")
+		}
+
+		switch field.connectionIndex {
+		case InvalidIndex:
+			kfmt.Fprintf(w, ", connection: -]")
+		default:
+			kfmt.Fprintf(w, ", connection: index %d]", field.connectionIndex)
+		}
+	} else if curObj.opcode == pOpStringPrefix {
+		kfmt.Fprintf(w, " -> [string value: \"%s\"]", curObj.value.([]byte))
+	} else if curObj.opcode == pOpIntNamePath {
+		kfmt.Fprintf(w, " -> [namepath: \"%s\"]", curObj.value.([]byte))
+	} else if curObj.value != nil {
+		switch v := curObj.value.(type) {
+		case uint64:
+			kfmt.Fprintf(w, " -> [num value; dec: %d, hex: 0x%x]", v, v)
+
+			// If this is an encoded EISA id convert it back to a string
+			if curObj.opcode == pOpDwordPrefix && tree.ObjectAt(curObj.parentIndex).name == [amlNameLen]byte{'_', 'H', 'I', 'D'} {
+				// Poor-man's ntohl
+				id := uint32((v>>24)&0xff) |
+					uint32((v>>16)&0xff)<<8 |
+					uint32((v>>8)&0xff)<<16 |
+					uint32(v&0xff)<<24
+
+				var eisaID = [7]byte{
+					'@' + (byte)((id>>26)&0x1f),
+					'@' + (byte)((id>>21)&0x1f),
+					'@' + (byte)((id>>16)&0x1f),
+					hexToASCII(id >> 12),
+					hexToASCII(id >> 8),
+					hexToASCII(id >> 4),
+					hexToASCII(id),
+				}
+
+				kfmt.Fprintf(w, " [EISA: \"%s\"]", eisaID[:])
+			}
+		case []byte:
+
+			kfmt.Fprintf(w, " -> [bytelist value; len: %d; data: [", len(v))
+			for i, b := range v {
+				if i != 0 {
+					kfmt.Fprintf(w, ", ")
+				}
+				kfmt.Fprintf(w, "0x%x", uint8(b))
+			}
+			kfmt.Fprintf(w, "]]")
+		}
+	}
+
+	kfmt.Fprintf(w, "\n")
+
+	padLen := padBuf.Len()
+	if curObj.nextSiblingIndex == InvalidIndex {
+		padBuf.WriteByte(' ')
+	} else {
+		padBuf.WriteByte('|')
+	}
+	padBuf.WriteByte(' ')
+	padBuf.WriteByte(' ')
+
+	for argIndex := curObj.firstArgIndex; argIndex != InvalidIndex; argIndex = tree.ObjectAt(argIndex).nextSiblingIndex {
+		tree.toString(w, padBuf, argIndex)
+	}
+
+	padBuf.Truncate(padLen)
+}
+
+func hexToASCII(val uint32) byte {
+	v := byte(val & 0xf)
+	if v <= 9 {
+		return '0' + v
+	}
+
+	return 'A' + (v - 0xa)
+}
+
+func nameOf(obj *Object) []byte {
+	var nameStartIndex, nameEndIndex int
+	for ; nameStartIndex < amlNameLen; nameStartIndex++ {
+		if ch := obj.name[nameStartIndex]; (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '\\' {
+			break
+		}
+	}
+	for nameEndIndex = nameStartIndex; nameEndIndex < amlNameLen; nameEndIndex++ {
+		if ch := obj.name[nameEndIndex]; !((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '\\') {
+			break
+		}
+	}
+
+	if nameStartIndex != amlNameLen {
+		return obj.name[nameStartIndex:nameEndIndex]
 	}
 
 	return nil
