@@ -41,6 +41,7 @@ type Parser struct {
 	objTree     *ObjectTree
 	scopeStack  []uint32
 	pkgEndStack []uint32
+	streamEnd   uint32
 
 	resolvePasses    uint32
 	mergedScopes     uint32
@@ -157,6 +158,8 @@ func (p *Parser) init(tableHandle uint8, tableName string, header *table.SDTHead
 		uint32(unsafe.Sizeof(table.SDTHeader{})),
 	)
 
+	// Keep track of the stream end for parsing deferred objects
+	p.streamEnd = header.Length
 	_ = p.pushPkgEnd(header.Length)
 }
 
@@ -431,6 +434,7 @@ func (p *Parser) parseStrictTermArg(curObj *Object) (*Object, parseResult) {
 
 	if !pOpIsType2(nextOp) && !pOpIsDataObject(nextOp) && !pOpIsArg(nextOp) {
 		kfmt.Fprintf(p.errWriter, "[table: %s, offset: 0x%x] encountered unexpected opcode %s while parsing termArg\n", p.tableName, p.r.Offset(), pOpcodeName(nextOp))
+		return nil, parseResultFailed
 	}
 
 	_, _ = p.nextOpcode()
@@ -985,8 +989,13 @@ func (p *Parser) pushPkgEnd(pkgEnd uint32) error {
 }
 
 func (p *Parser) popPkgEnd() {
-	p.pkgEndStack = p.pkgEndStack[:len(p.pkgEndStack)-1]
+	// Pop pkg end if one exists
 	if len(p.pkgEndStack) != 0 {
+		p.pkgEndStack = p.pkgEndStack[:len(p.pkgEndStack)-1]
+	}
+
+	// If the stack is not empty restore the last pushed pkgEnd
+	if len(p.pkgEndStack) != 0 && len(p.pkgEndStack) != 0 {
 		_ = p.r.SetPkgEnd(p.pkgEndStack[len(p.pkgEndStack)-1])
 	}
 }
@@ -1024,8 +1033,10 @@ func (p *Parser) connectNamedObjArgs(objIndex uint32) parseResult {
 			return parseResultFailed
 		}
 
-		// The last amlNameLen contain the name for this object
-		nameIndex = len(namepath) - amlNameLen
+		// The last amlNameLen part of the namepath contains the name for this object
+		if nameIndex = len(namepath) - amlNameLen; nameIndex < 0 {
+			return parseResultFailed
+		}
 		for i := 0; i < amlNameLen; i++ {
 			argObj.name[i] = namepath[nameIndex+i]
 		}
@@ -1239,6 +1250,7 @@ func (p *Parser) parseDeferredBlocks(objIndex uint32) parseResult {
 		p.mode = parseModeAllBlocks
 
 		// Set stream offset to the first arg
+		p.r.SetPkgEnd(p.streamEnd)
 		p.r.SetOffset(obj.amlOffset + 1)
 		if obj.opcode > 0xff { // opcode length = 2
 			_, _ = p.r.ReadByte()

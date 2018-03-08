@@ -284,7 +284,7 @@ func (tree *ObjectTree) Find(scopeIndex uint32, expr []byte) uint32 {
 		// The expression consists of multiple name segments joined together (e.g. FOOFBAR0)
 		// In this case we need to apply relative lookup rules for FOOF.BAR0
 		return tree.findRelative(scopeIndex, expr)
-	default:
+	case exprLen == amlNameLen:
 		// expr is a simple name. According to the spec, we need to
 		// search for it in this scope and all its parent scopes till
 		// we reach the root.
@@ -320,7 +320,8 @@ nextSegment:
 		// case skip over them.
 		for ; segIndex < exprLen && expr[segIndex] != '_' && (expr[segIndex] < 'A' || expr[segIndex] > 'Z'); segIndex++ {
 		}
-		if segIndex >= exprLen {
+
+		if exprLen-segIndex < amlNameLen {
 			return InvalidIndex
 		}
 

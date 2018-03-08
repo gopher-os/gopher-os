@@ -29,12 +29,13 @@ func (r *amlStreamReader) Init(dataAddr uintptr, dataLen, initialOffset uint32) 
 		Data: dataAddr,
 	}))
 
+	r.SetPkgEnd(dataLen)
 	r.SetOffset(initialOffset)
 }
 
 // EOF returns true if the end of the  pkg has been reached.
 func (r *amlStreamReader) EOF() bool {
-	return r.offset == r.pkgEnd
+	return r.offset >= r.pkgEnd
 }
 
 func (r *amlStreamReader) SetPkgEnd(pkgEnd uint32) error {

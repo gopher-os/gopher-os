@@ -200,7 +200,7 @@ func TestParseAMLErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("connectNonNamedObjArgs  failed", func(t *testing.T) {
+	t.Run("connectNonNamedObjArgs failed", func(t *testing.T) {
 		p, resolver := parserForMockPayload(t, []byte{})
 
 		// Use a named object whose args contain a TermArg
@@ -727,6 +727,24 @@ func TestConnectNamedObjectsErrors(t *testing.T) {
 			t.Fatalf("expected to get parseResultFailed(%d); got %d", parseResultFailed, res)
 		}
 	})
+
+	t.Run("incomplete namepath", func(t *testing.T) {
+		tree := NewObjectTree()
+		tree.CreateDefaultScopes(0)
+
+		// Use a named object whose args contain a TermArg
+		namedObj := tree.newNamedObject(pOpBankField, 0, [amlNameLen]byte{'F', 'O', 'O', 'F'})
+		namepathObj := tree.newObject(pOpIntNamePath, 0)
+		namepathObj.value = []byte{'F', 'O'} // namepath len < amlNameLen
+		tree.append(namedObj, namepathObj)
+		tree.append(tree.ObjectAt(0), namedObj)
+
+		p := NewParser(ioutil.Discard, tree)
+		if res := p.connectNamedObjArgs(0); res != parseResultFailed {
+			t.Fatalf("expected to get parseResultFailed(%d); got %d", parseResultFailed, res)
+		}
+	})
+
 }
 
 func TestMergeScopeDirectivesErrors(t *testing.T) {
