@@ -8,8 +8,8 @@ func TestFindByName(t *testing.T) {
 	}(availableFonts)
 
 	availableFonts = []*Font{
-		&Font{Name: "foo"},
-		&Font{Name: "bar"},
+		{Name: "foo"},
+		{Name: "bar"},
 	}
 
 	exp := availableFonts[1]
@@ -28,10 +28,10 @@ func TestBestFit(t *testing.T) {
 	}(availableFonts)
 
 	availableFonts = []*Font{
-		&Font{Name: "retina1", RecommendedWidth: 2560, RecommendedHeight: 1600, Priority: 2},
-		&Font{Name: "retina2", RecommendedWidth: 2560, RecommendedHeight: 1600, Priority: 1},
-		&Font{Name: "default", RecommendedWidth: 800, RecommendedHeight: 600, Priority: 0},
-		&Font{Name: "standard", RecommendedWidth: 1024, RecommendedHeight: 768, Priority: 0},
+		{Name: "retina1", RecommendedWidth: 2560, RecommendedHeight: 1600, Priority: 2},
+		{Name: "retina2", RecommendedWidth: 2560, RecommendedHeight: 1600, Priority: 1},
+		{Name: "default", RecommendedWidth: 800, RecommendedHeight: 600, Priority: 0},
+		{Name: "standard", RecommendedWidth: 1024, RecommendedHeight: 768, Priority: 0},
 	}
 
 	specs := []struct {

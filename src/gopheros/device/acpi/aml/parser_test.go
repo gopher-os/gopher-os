@@ -559,14 +559,14 @@ func TestParsePkgLength(t *testing.T) {
 func TestParsePkgLengthErrors(t *testing.T) {
 	specs := [][]byte{
 		// lead byte bits (6:7) indicate 1 extra byte that is missing
-		[]byte{1 << 6},
+		{1 << 6},
 		// lead byte bits (6:7) indicate 2 extra bytes with the 1st and then 2nd missing
-		[]byte{2 << 6},
-		[]byte{2 << 6, 0x1},
+		{2 << 6},
+		{2 << 6, 0x1},
 		// lead byte bits (6:7) indicate 3 extra bytes with the 1st and then 2nd and then 3rd missing
-		[]byte{3 << 6},
-		[]byte{3 << 6, 0x1},
-		[]byte{3 << 6, 0x1, 0x2},
+		{3 << 6},
+		{3 << 6, 0x1},
+		{3 << 6, 0x1, 0x2},
 	}
 
 	for specIndex, spec := range specs {
@@ -580,9 +580,9 @@ func TestParsePkgLengthErrors(t *testing.T) {
 func TestParseStringErrors(t *testing.T) {
 	specs := [][]byte{
 		// Unexpected EOF before terminating null byte
-		[]byte{'A'},
+		{'A'},
 		// Characters outside the allowed [0x01, 0x7f] range
-		[]byte{'A', 0xba, 0xdf, 0x00},
+		{'A', 0xba, 0xdf, 0x00},
 	}
 
 	for specIndex, spec := range specs {

@@ -517,22 +517,22 @@ func (cons *VesaFbConsole) loadDefaultPalette() {
 	cons.palette = make(color.Palette, 256)
 
 	egaPalette := []color.RGBA{
-		color.RGBA{R: 0, G: 0, B: 0},       /* black */
-		color.RGBA{R: 0, G: 0, B: 128},     /* blue */
-		color.RGBA{R: 0, G: 128, B: 1},     /* green */
-		color.RGBA{R: 0, G: 128, B: 128},   /* cyan */
-		color.RGBA{R: 128, G: 0, B: 1},     /* red */
-		color.RGBA{R: 128, G: 0, B: 128},   /* magenta */
-		color.RGBA{R: 64, G: 64, B: 1},     /* brown */
-		color.RGBA{R: 128, G: 128, B: 128}, /* light gray */
-		color.RGBA{R: 64, G: 64, B: 64},    /* dark gray */
-		color.RGBA{R: 0, G: 0, B: 255},     /* light blue */
-		color.RGBA{R: 0, G: 255, B: 1},     /* light green */
-		color.RGBA{R: 0, G: 255, B: 255},   /* light cyan */
-		color.RGBA{R: 255, G: 0, B: 1},     /* light red */
-		color.RGBA{R: 255, G: 0, B: 255},   /* light magenta */
-		color.RGBA{R: 255, G: 255, B: 1},   /* yellow */
-		color.RGBA{R: 255, G: 255, B: 255}, /* white */
+		{R: 0, G: 0, B: 0},       /* black */
+		{R: 0, G: 0, B: 128},     /* blue */
+		{R: 0, G: 128, B: 1},     /* green */
+		{R: 0, G: 128, B: 128},   /* cyan */
+		{R: 128, G: 0, B: 1},     /* red */
+		{R: 128, G: 0, B: 128},   /* magenta */
+		{R: 64, G: 64, B: 1},     /* brown */
+		{R: 128, G: 128, B: 128}, /* light gray */
+		{R: 64, G: 64, B: 64},    /* dark gray */
+		{R: 0, G: 0, B: 255},     /* light blue */
+		{R: 0, G: 255, B: 1},     /* light green */
+		{R: 0, G: 255, B: 255},   /* light cyan */
+		{R: 255, G: 0, B: 1},     /* light red */
+		{R: 255, G: 0, B: 255},   /* light magenta */
+		{R: 255, G: 255, B: 1},   /* yellow */
+		{R: 255, G: 255, B: 255}, /* white */
 	}
 
 	// Load default EGA palette for colors 0-16

@@ -1622,8 +1622,8 @@ func TestVesaFbSetLogo(t *testing.T) {
 			Align:            logo.AlignLeft,
 			TransparentIndex: 0,
 			Palette: []color.RGBA{
-				color.RGBA{R: 255, G: 0, B: 255},
-				color.RGBA{R: 255, G: 0, B: 128},
+				{R: 255, G: 0, B: 255},
+				{R: 255, G: 0, B: 128},
 			},
 			Data: []byte{
 				0x0, 0x1,

@@ -8,9 +8,9 @@ func TestBestFit(t *testing.T) {
 	}(availableLogos)
 
 	availableLogos = []*Image{
-		&Image{Height: 64},
-		&Image{Height: 96},
-		&Image{Height: 128},
+		{Height: 64},
+		{Height: 96},
+		{Height: 128},
 	}
 
 	specs := []struct {

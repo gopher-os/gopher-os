@@ -11,10 +11,10 @@ func TestDriverInfoListSorting(t *testing.T) {
 	}()
 
 	origlist := []*DriverInfo{
-		&DriverInfo{Order: DetectOrderACPI},
-		&DriverInfo{Order: DetectOrderLast},
-		&DriverInfo{Order: DetectOrderBeforeACPI},
-		&DriverInfo{Order: DetectOrderEarly},
+		{Order: DetectOrderACPI},
+		{Order: DetectOrderLast},
+		{Order: DetectOrderBeforeACPI},
+		{Order: DetectOrderEarly},
 	}
 
 	for _, drv := range origlist {

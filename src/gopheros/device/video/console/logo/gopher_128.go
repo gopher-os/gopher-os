@@ -4,10 +4,10 @@ import "image/color"
 
 var (
 	gopher95x128 = Image{
-		Width:			95,
-		Height:			128,
-		Align:			AlignCenter,
-		TransparentIndex:	0,
+		Width:            95,
+		Height:           128,
+		Align:            AlignCenter,
+		TransparentIndex: 0,
 		Palette: []color.RGBA{
 			{R: 255, G: 0, B: 255},
 			{R: 228, G: 230, B: 227},
