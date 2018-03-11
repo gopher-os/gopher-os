@@ -184,6 +184,7 @@ lint: lint-check-deps
 		--enable=unconvert \
 		--enable=varcheck \
 		--enable=golint \
+		--enable=gofmt \
 		--deadline 300s \
 		--exclude 'possible misuse of unsafe.Pointer' \
 		--exclude 'x \^ 0 always equals x' \
