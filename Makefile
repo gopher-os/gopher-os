@@ -11,12 +11,17 @@ iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 # this: make run GO=go1.8
 GO ?= go
 
-# Prepend build path to GOPATH so the compiled packages and linter dependencies 
+# Prepend build path to GOPATH so the compiled packages and linter dependencies
 # end up inside the build folder
 GOPATH := $(BUILD_ABS_DIR):$(shell pwd):$(GOPATH)
 
+FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
+# To append more entries to the above list use the following syntax
+# FUZZ_PKG_LIST += path-to-pkg
+
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
+
 
 LD := ld
 AS := nasm
@@ -143,7 +148,7 @@ run-vbox: iso
 	VBoxManage storageattach $(VBOX_VM_NAME) --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive \
 		--medium $(iso_target) || true
 	VBoxManage startvm $(VBOX_VM_NAME)
-	
+
 # When building gdb target disable optimizations (-N) and inlining (l) of Go code
 gdb: GC_FLAGS += -N -l
 gdb: iso
@@ -185,11 +190,27 @@ lint: lint-check-deps
 		src/...
 
 lint-check-deps:
+	@echo [go get] installing linter dependencies
 	@GOPATH=$(GOPATH) $(GO) get -u -t gopkg.in/alecthomas/gometalinter.v1
 	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 --install >/dev/null
 
 test:
 	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
+
+fuzz-deps:
+	@mkdir -p $(BUILD_DIR)/fuzz
+	@echo [go get] installing go-fuzz dependencies
+	@GOPATH=$(GOPATH) $(GO) get -u github.com/dvyukov/go-fuzz/...
+
+%.fuzzpkg: %
+	@echo [go-fuzz] fuzzing: $<
+	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) go-fuzz-build -o $(BUILD_ABS_DIR)/fuzz/$(subst /,_,$<).zip $(subst src/,,$<)
+	@mkdir -p $(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<)/corpus
+	@echo [go-fuzz] + grepping for corpus file hints in $<
+	@grep "go-fuzz-corpus+=" $</*fuzz.go | cut -d'=' -f2 | tr '\n' '\0' | xargs -0 -I@ sh -c 'export F="@"; cp $$F $(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<)/corpus/ && echo "[go fuzz]   + copy extra corpus file: $$F"'
+	@go-fuzz -bin=$(BUILD_ABS_DIR)/fuzz/$(subst /,_,$<).zip -workdir=$(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<) 2>&1 | sed -e "s/^/  | /g"
+
+test-fuzz: fuzz-deps $(addsuffix .fuzzpkg,$(FUZZ_PKG_LIST))
 
 collect-coverage:
 	GOPATH=$(GOPATH) sh coverage.sh
