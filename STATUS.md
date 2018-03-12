@@ -36,8 +36,9 @@ steps in the project roadmap.
 - TTY
 	- [x] Simple VT
 - ACPI 6.2 support (**in progress**)
-	- [ ] ACPI table detection and parsing 
-	- [ ] AML parser/interpreter
+	- [x] ACPI table detection and parsing 
+	- [x] AML parser
+	- [ ] AML interpreter/VM
 - Interrupt handling chip drivers
 	- [ ] APIC
 - Timer and time-keeping drivers
