@@ -1,9 +1,29 @@
 language: go
 sudo: required
+addons:
+  apt:
+    packages:
+    - nasm
+    - binutils-2.26
+# Compile kernel with various go versions
 go:
+  - 1.7.x
+  - 1.8.x
+  - 1.9.x
+  - 1.10.x
   - 1.x
-script:
-  - make lint
-  - make collect-coverage
-after_success:
-  - bash <(curl -s https://codecov.io/bash)
+stage: build kernel
+before_install:
+  - export PATH=/usr/lib/binutils-2.26/bin:${PATH}
+script: make kernel
+
+# Run the tests against the latest go version
+jobs:
+  include:
+    - stage: run tests
+      go: 1.x
+      script:
+        - make lint
+        - make collect-coverage
+      after_success:
+        - bash <(curl -s https://codecov.io/bash)
