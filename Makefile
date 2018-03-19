@@ -22,7 +22,6 @@ FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
 
-
 LD := ld
 AS := nasm
 
@@ -105,7 +104,7 @@ $(BUILD_DIR)/go_asm_offsets.inc:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
-	@GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
+	@GOROOT=$(GOROOT) GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
 
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: src/arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
