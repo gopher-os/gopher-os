@@ -69,7 +69,7 @@ func pageFaultHandler(errorCode uint64, frame *irq.Frame, regs *irq.Regs) {
 		} else {
 			// Copy page contents, mark as RW and remove CoW flag
 			mem.Memcopy(faultPage.Address(), tmpPage.Address(), mem.PageSize)
-			unmapFn(tmpPage)
+			_ = unmapFn(tmpPage)
 
 			// Update mapping to point to the new frame, flag it as RW and
 			// remove the CoW flag
@@ -139,7 +139,7 @@ func reserveZeroedFrame() *kernel.Error {
 		return err
 	}
 	mem.Memset(tempPage.Address(), 0, mem.PageSize)
-	unmapFn(tempPage)
+	_ = unmapFn(tempPage)
 
 	// From this point on, ReservedZeroedFrame cannot be mapped with a RW flag
 	protectReservedZeroedPage = true

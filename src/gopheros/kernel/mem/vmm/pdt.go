@@ -63,7 +63,7 @@ func (pdt *PageDirectoryTable) Init(pdtFrame pmm.Frame) *kernel.Error {
 	lastPdtEntry.SetFrame(pdtFrame)
 
 	// Remove temporary mapping
-	unmapFn(pdtPage)
+	_ = unmapFn(pdtPage)
 
 	return nil
 }
