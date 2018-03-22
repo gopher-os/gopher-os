@@ -69,7 +69,7 @@ func pageFaultHandler(errorCode uint64, frame *irq.Frame, regs *irq.Regs) {
 		} else {
 			// Copy page contents, mark as RW and remove CoW flag
 			mem.Memcopy(faultPage.Address(), tmpPage.Address(), mem.PageSize)
-			unmapFn(tmpPage)
+			_ = unmapFn(tmpPage)
 
 			// Update mapping to point to the new frame, flag it as RW and
 			// remove the CoW flag
@@ -139,7 +139,7 @@ func reserveZeroedFrame() *kernel.Error {
 		return err
 	}
 	mem.Memset(tempPage.Address(), 0, mem.PageSize)
-	unmapFn(tempPage)
+	_ = unmapFn(tempPage)
 
 	// From this point on, ReservedZeroedFrame cannot be mapped with a RW flag
 	protectReservedZeroedPage = true
@@ -181,7 +181,6 @@ func setupPDTForKernel(kernelPageOffset uintptr) *kernel.Error {
 
 	// Query the ELF sections of the kernel image and establish mappings
 	// for each one using the appropriate flags
-	pageSizeMinus1 := uint64(mem.PageSize - 1)
 	var visitor = func(_ string, secFlags multiboot.ElfSectionFlag, secAddress uintptr, secSize uint64) {
 		// Bail out if we have encountered an error; also ignore sections
 		// not using the kernel's VMA
@@ -199,11 +198,15 @@ func setupPDTForKernel(kernelPageOffset uintptr) *kernel.Error {
 			flags |= FlagRW
 		}
 
-		// We assume that all sections are page-aligned by the linker script
+		// Map the start and end VMA addresses for the section contents
+		// into a start and end (inclusive) page number. To figure out
+		// the physical start frame we just need to subtract the
+		// kernel's VMA offset from the virtual address and round that
+		// down to the nearest frame number.
 		curPage := PageFromAddress(secAddress)
+		lastPage := PageFromAddress(secAddress + uintptr(secSize-1))
 		curFrame := pmm.Frame((secAddress - kernelPageOffset) >> mem.PageShift)
-		endFrame := curFrame + pmm.Frame(((secSize+pageSizeMinus1) & ^pageSizeMinus1)>>mem.PageShift)
-		for ; curFrame < endFrame; curFrame, curPage = curFrame+1, curPage+1 {
+		for ; curPage <= lastPage; curFrame, curPage = curFrame+1, curPage+1 {
 			if err = pdt.Map(curPage, curFrame, flags); err != nil {
 				return
 			}

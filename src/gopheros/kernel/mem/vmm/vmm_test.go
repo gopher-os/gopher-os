@@ -330,10 +330,14 @@ func TestSetupPDTForKernel(t *testing.T) {
 		translateFn = func(_ uintptr) (uintptr, *kernel.Error) { return 0xbadf00d000, nil }
 		mapTemporaryFn = func(f pmm.Frame) (Page, *kernel.Error) { return Page(f), nil }
 		visitElfSectionsFn = func(v multiboot.ElfSectionVisitor) {
-			v(".debug", 0, 0, uint64(mem.PageSize>>1)) // address < VMA; should be ignored
-			v(".text", multiboot.ElfSectionExecutable, 0xbadc0ffee, uint64(mem.PageSize>>1))
-			v(".data", multiboot.ElfSectionWritable, 0xbadc0ffee, uint64(mem.PageSize))
-			v(".rodata", 0, 0xbadc0ffee, uint64(mem.PageSize<<1))
+			// address < VMA; should be ignored
+			v(".debug", 0, 0, uint64(mem.PageSize>>1))
+			// section uses 32-byte alignment instead of page alignment and has a size
+			// equal to 1 page. Due to rounding, we need to actually map 2 pages.
+			v(".text", multiboot.ElfSectionExecutable, 0x10032, uint64(mem.PageSize))
+			v(".data", multiboot.ElfSectionWritable, 0x2000, uint64(mem.PageSize))
+			// section is page-aligned and occupies exactly 2 pages
+			v(".rodata", 0, 0x3000, uint64(mem.PageSize<<1))
 		}
 		mapCount := 0
 		mapFn = func(page Page, frame pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
@@ -342,11 +346,11 @@ func TestSetupPDTForKernel(t *testing.T) {
 			var expFlags PageTableEntryFlag
 
 			switch mapCount {
-			case 0:
+			case 0, 1:
 				expFlags = FlagPresent
-			case 1:
+			case 2:
 				expFlags = FlagPresent | FlagNoExecute | FlagRW
-			case 2, 3:
+			case 3, 4:
 				expFlags = FlagPresent | FlagNoExecute
 			}
 
@@ -361,7 +365,7 @@ func TestSetupPDTForKernel(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if exp := 4; mapCount != exp {
+		if exp := 5; mapCount != exp {
 			t.Errorf("expected Map to be called %d times; got %d", exp, mapCount)
 		}
 	})
