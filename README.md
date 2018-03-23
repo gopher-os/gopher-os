@@ -1,19 +1,20 @@
-# gopher-os
-[![Build Status](https://travis-ci.org/achilleasa/gopher-os.svg?branch=master)](https://travis-ci.org/achilleasa/gopher-os)
-[![codecov](https://codecov.io/gh/achilleasa/gopher-os/branch/master/graph/badge.svg)](https://codecov.io/gh/achilleasa/gopher-os)
-[![Go Report Card](https://goreportcard.com/badge/github.com/achilleasa/gopher-os)](https://goreportcard.com/report/github.com/achilleasa/gopher-os)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# gopher-os [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-| Go 1.7.x            | Go 1.8.x            | Go 1.9.x            | Go 1.10.x            | Go 1.x            |
-|---------------------|---------------------|---------------------|----------------------|-------------------|
-| [![go 1.7.x][1]][6] | [![go 1.8.x][2]][6] | [![Go 1.9.x][3]][6] | [![go 1.10.x][4]][6] | [![go 1.x][5]][6] |
+| Tests / Coverage                                                       | Go 1.7.x            | Go 1.8.x            | Go 1.9.x            | Go 1.10.x            | Go 1.x            |
+|------------------------------------------------------------------------|---------------------|---------------------|---------------------|----------------------|-------------------|
+| [![Build Status][0]][6] [![Coverage][7]][8] [![Go Report Card][9]][10] | [![go 1.7.x][1]][6] | [![go 1.8.x][2]][6] | [![Go 1.9.x][3]][6] | [![go 1.10.x][4]][6] | [![go 1.x][5]][6] |
 
+[0]: https://travis-ci.org/achilleasa/gopher-os.svg?branch=master
 [1]: https://travis-matrix-badges.herokuapp.com/repos/achilleasa/gopher-os/branches/master/1
 [2]: https://travis-matrix-badges.herokuapp.com/repos/achilleasa/gopher-os/branches/master/2
 [3]: https://travis-matrix-badges.herokuapp.com/repos/achilleasa/gopher-os/branches/master/3
 [4]: https://travis-matrix-badges.herokuapp.com/repos/achilleasa/gopher-os/branches/master/4
 [5]: https://travis-matrix-badges.herokuapp.com/repos/achilleasa/gopher-os/branches/master/5
 [6]: https://travis-ci.org/achilleasa/gopher-os
+[7]: https://codecov.io/gh/achilleasa/gopher-os/branch/master/graph/badge.svg
+[8]: https://codecov.io/gh/achilleasa/gopher-os
+[9]: https://goreportcard.com/badge/github.com/achilleasa/gopher-os
+[10]: https://goreportcard.com/report/github.com/achilleasa/gopher-os
 
 The goal of this project is to build a 64-bit POSIX-compliant tick-less kernel
 with a Linux-compatible syscall implementation using [Go](https://golang.org). 
