@@ -61,11 +61,13 @@ go.o:
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
 	    -e "1s|^|export GOROOT=$(GOROOT)\n|" \
-	    -e "1s|^|WORK='$(BUILD_ABS_DIR)'\n|" \
+	    -e "1s|^|export CGO_ENABLED=0\n|" \
 	    -e "1s|^|alias pack='$(GO) tool pack'\n|" \
 	    -e "/^mv/d" \
+	    -e "/\/buildid/d" \
 	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostartfiles -nodefaultlibs -nostdlib -r' -extld|g" \
-	    | sh 2>&1 | sed -e "s/^/  | /g"
+	    -e 's|$$WORK|$(BUILD_ABS_DIR)|g' \
+            | sh 2>&1 |  sed -e "s/^/  | /g"
 
 	@# build/go.o is a elf32 object file but all go symbols are unexported. Our
 	@# asm entrypoint code needs to know the address to 'main.main' so we use
