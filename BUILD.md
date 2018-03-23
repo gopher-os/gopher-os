@@ -11,7 +11,7 @@ To compile gopher-os wheh running on Linux you need a fairly recent version of:
 - grub
 - nasm 
 - gcc (for GNU ld)
-- go (1.6+; recommended: 1.8)
+- go 1.7+
 
 The above dependencies can be installed using the appropriate package manager 
 for each particular Linux distribution.

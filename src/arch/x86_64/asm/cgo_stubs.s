@@ -6,6 +6,7 @@ bits 64
 global x_cgo_callers
 global x_cgo_init
 global x_cgo_mmap
+global x_cgo_munmap
 global x_cgo_notify_runtime_init_done
 global x_cgo_sigaction
 global x_cgo_thread_start
@@ -17,6 +18,7 @@ global _cgo_yield
 x_cgo_callers:
 x_cgo_init:
 x_cgo_mmap:
+x_cgo_munmap:
 x_cgo_notify_runtime_init_done:
 x_cgo_sigaction:
 x_cgo_thread_start:

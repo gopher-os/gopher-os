@@ -22,7 +22,6 @@ FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
 
-
 LD := ld
 AS := nasm
 
@@ -62,11 +61,13 @@ go.o:
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
 	    -e "1s|^|export GOROOT=$(GOROOT)\n|" \
-	    -e "1s|^|WORK='$(BUILD_ABS_DIR)'\n|" \
+	    -e "1s|^|export CGO_ENABLED=0\n|" \
 	    -e "1s|^|alias pack='$(GO) tool pack'\n|" \
 	    -e "/^mv/d" \
+	    -e "/\/buildid/d" \
 	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostartfiles -nodefaultlibs -nostdlib -r' -extld|g" \
-	    | sh 2>&1 | sed -e "s/^/  | /g"
+	    -e 's|$$WORK|$(BUILD_ABS_DIR)|g' \
+            | sh 2>&1 |  sed -e "s/^/  | /g"
 
 	@# build/go.o is a elf32 object file but all go symbols are unexported. Our
 	@# asm entrypoint code needs to know the address to 'main.main' so we use
@@ -105,7 +106,7 @@ $(BUILD_DIR)/go_asm_offsets.inc:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
-	@GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
+	@GOROOT=$(GOROOT) GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
 
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: src/arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)

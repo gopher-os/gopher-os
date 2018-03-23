@@ -27,27 +27,6 @@ var (
 	prngSeed = 0xdeadc0de
 )
 
-//go:linkname algInit runtime.alginit
-func algInit()
-
-//go:linkname modulesInit runtime.modulesinit
-func modulesInit()
-
-//go:linkname typeLinksInit runtime.typelinksinit
-func typeLinksInit()
-
-//go:linkname itabsInit runtime.itabsinit
-func itabsInit()
-
-//go:linkname mallocInit runtime.mallocinit
-func mallocInit()
-
-//go:linkname mSysStatInc runtime.mSysStatInc
-func mSysStatInc(*uint64, uintptr)
-
-//go:linkname procResize runtime.procresize
-func procResize(int32) uintptr
-
 // initGoPackages is an alias to main.init which recursively calls the init()
 // methods in all imported packages. Unless this function is called, things like
 // package errors will not be properly initialized causing various problems when
@@ -184,7 +163,7 @@ func getRandomData(r []byte) {
 func Init() *kernel.Error {
 	mallocInitFn()
 	algInitFn()       // setup hash implementation for map keys
-	modulesInitFn()   // provides activeModules
+	modulesInitFn()   // provides activeModules (go 1.8+)
 	typeLinksInitFn() // uses maps, activeModules
 	itabsInitFn()     // uses activeModules
 
