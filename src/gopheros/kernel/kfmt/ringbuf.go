@@ -40,10 +40,9 @@ func (rb *ringBuffer) Read(p []byte) (n int, err error) {
 			n = pLen
 		}
 
-		copy(p, rb.buffer[rb.rIndex:rb.rIndex+n])
-		rb.rIndex += n
-
-		return n, nil
+		for i := 0; i < n; i, rb.rIndex = i+1, rb.rIndex+1 {
+			p[i] = rb.buffer[rb.rIndex]
+		}
 	case rb.rIndex > rb.wIndex:
 		// Read up to min(len(buf) - rIndex, len(p)) bytes
 		n = len(rb.buffer) - rb.rIndex
@@ -51,15 +50,17 @@ func (rb *ringBuffer) Read(p []byte) (n int, err error) {
 			n = pLen
 		}
 
-		copy(p, rb.buffer[rb.rIndex:rb.rIndex+n])
-		rb.rIndex += n
+		for i := 0; i < n; i, rb.rIndex = i+1, rb.rIndex+1 {
+			p[i] = rb.buffer[rb.rIndex]
+		}
 
 		if rb.rIndex == len(rb.buffer) {
 			rb.rIndex = 0
 		}
 
-		return n, nil
 	default: // rIndex == wIndex
-		return 0, io.EOF
+		n, err = 0, io.EOF
 	}
+
+	return n, err
 }
