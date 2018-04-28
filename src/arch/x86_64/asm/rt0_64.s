@@ -27,6 +27,14 @@ _rt0_irq_handlers resq IDT_ENTRIES
 r0_g_ptr:  resq 1
 tcb_ptr:   resq 1
 
+; Go < 1.9 does not define runtime.useAVXmemmove; to avoid linker errors define 
+; a dummy symbol so that the gate entry code can work as expected.
+%if WITH_RUNTIME_AVXMEMMOVE == 0 
+	runtime.useAVXmemmove resb 1
+%else 
+	extern runtime.useAVXmemmove
+%endif
+
 section .text
 
 ;------------------------------------------------------------------------------
@@ -182,7 +190,7 @@ _rt0_64_gate_entry_%+ gate_num:
 %assign gate_num gate_num+1
 %endrep
 
-%macro save_regs 0
+%macro save_gp_regs 0
 	push r15
 	push r14
 	push r13
@@ -200,7 +208,7 @@ _rt0_64_gate_entry_%+ gate_num:
 	push rax
 %endmacro
 
-%macro restore_regs 0
+%macro restore_gp_regs 0
 	pop rax
 	pop rbx
 	pop rcx
@@ -218,97 +226,163 @@ _rt0_64_gate_entry_%+ gate_num:
 	pop r15
 %endmacro
 
+%macro save_xmm_regs 0 
+	sub     rsp, 16*16
+	movdqu  [rsp+0*16], xmm0
+	movdqu  [rsp+1*16], xmm1
+	movdqu  [rsp+2*16], xmm2
+	movdqu  [rsp+3*16], xmm3
+	movdqu  [rsp+4*16], xmm4
+	movdqu  [rsp+5*16], xmm5
+	movdqu  [rsp+6*16], xmm6
+	movdqu  [rsp+7*16], xmm7
+	movdqu  [rsp+8*16], xmm8
+	movdqu  [rsp+9*16], xmm9
+	movdqu  [rsp+10*16], xmm10
+	movdqu  [rsp+11*16], xmm11
+	movdqu  [rsp+12*16], xmm12
+	movdqu  [rsp+13*16], xmm13
+	movdqu  [rsp+14*16], xmm14
+	movdqu  [rsp+15*16], xmm15
+%endmacro
+
+%macro restore_xmm_regs 0 
+	movdqu  xmm0, [rsp+0*16]
+	movdqu  xmm1, [rsp+1*16]
+	movdqu  xmm2, [rsp+2*16]
+	movdqu  xmm3, [rsp+3*16]
+	movdqu  xmm4, [rsp+4*16]
+	movdqu  xmm5, [rsp+5*16]
+	movdqu  xmm6, [rsp+6*16]
+	movdqu  xmm7, [rsp+7*16]
+	movdqu  xmm8, [rsp+8*16]
+	movdqu  xmm9, [rsp+9*16]
+	movdqu  xmm10, [rsp+10*16]
+	movdqu  xmm11, [rsp+11*16]
+	movdqu  xmm12, [rsp+12*16]
+	movdqu  xmm13, [rsp+13*16]
+	movdqu  xmm14, [rsp+14*16]
+	movdqu  xmm15, [rsp+15*16]
+	add     rsp, 16*16
+%endmacro
+
+
 ;------------------------------------------------------------------------------
 ; This dispatcher is invoked by gate entries that expect a code to be pushed
-; by the CPU to the stack. It performs the following functions:
-; - save registers
-; - push pointer to saved regs
-; - push pointer to stack frame
-; - read and push exception code
-; - invoke handler(code, &frame, &regs)
-; - restore registers
-; - pop exception code from stack so rsp points to the stack frame
+; by the CPU to the stack. 
+;
+; This is the stack layout used by this function. Items are 8-bytes 
+; wide with the exception of the xmm regs that are 16 bytes wide
+;
+; ----------------|
+; useAVXmemmove   | <- original value of runtime.useAVXmemmove
+;-----------------|
+; xmm regs (16)   |
+;-----------------| <- RBP will point at the last pushed GP reg
+; gp regs (15)    | 
+;-----------------|
+; handler address | <- pushed by gate_entry_xxx (RSP initially points here)
+;-----------------|
+; exception code  | <- pushed by CPU (must be popped before returning)
+;-----------------|
+; RIP             | <- pushed by CPU (exception frame)
+; CS              |
+; RFLAGS          |
+; RSP             |
+; SS              |
+;-----------------
 ;------------------------------------------------------------------------------
 _rt0_64_gate_dispatcher_with_code:
-	; This is how the stack looks like when entering this function:
-	; (each item is 8-bytes wide)
-	;
-	;------------------
-	; handler address | <- pushed by gate_entry_xxx (RSP points here)
-	;-----------------|
-	; Exception code  | <- needs to be removed from stack before calling iretq
-	;-----------------|
-	; RIP             | <- exception frame
-	; CS              |
-	; RFLAGS          |
-	; RSP             |
-	; SS              |
-	;-----------------
 	cld
 
-	; save regs and push a pointer to them
-	save_regs
-	mov rax, rsp   ; rax points to saved rax
-	push rax       ; push pointer to saved regs
+	; save general-purpose regs
+	save_gp_regs
+	mov rbp, rsp   ; rbp points to saved rax
 
-	; push pointer to exception stack frame (we have used 15 qwords for the
-	; saved registers plus one qword for the data pushed by the gate entry
-	; plus one extra qword to jump over the exception code)
-	add rax, 17*8
-	push rax
+	; save xmm regs as the fault handler may clobber them by calling an 
+	; SSE-enabled runtime function like copy (calls runtime.memmove). In 
+	; addition temporarily disable AVX support for runtime.memmove so we 
+	; don't need to also preserve the avx regs.
+	save_xmm_regs
+	mov rax, runtime.useAVXmemmove
+	push qword [rax] 
+	mov byte [rax], 0
 
-	; push exception code (located between the stack frame and the saved regs)
-	sub rax, 8
-	push qword [rax]
+	; push exception handler args and call registered handler
+	push qword [rbp]         ; ptr to regs
+	push qword [rbp+17*8]    ; ptr to exception frame 
+	push qword [rbp+16*8]    ; exception code
+	call qword [rbp+15*8]
+	add rsp, 3 * 8
 
-	call [rsp + 18*8] ; call registered irq handler
+	; restore xmm regs and restore AVX support for runtime.memmove
+	mov rax, runtime.useAVXmemmove
+	pop rbx
+	mov byte [rax], bl
+	restore_xmm_regs
 
-	add rsp, 3 * 8    ; unshift the pushed arguments so rsp points to the saved regs
-	restore_regs
+	; restore general purpose regs
+	restore_gp_regs
 
-	add rsp, 16	  ; pop handler address and exception code off the stack before returning
+	; pop handler address + exception code so RSP points to the stack frame.
+	add rsp, 2*8
 	iretq
 
 ;------------------------------------------------------------------------------
 ; This dispatcher is invoked by gate entries that do not use exception codes.
-; It performs the following functions:
-; - save registers
-; - push pointer to saved regs
-; - push pointer to stack frame
-; - invoke handler(&frame, &regs)
-; - restore registers
+;
+; This is the stack layout used by this function. Items are 8-bytes 
+; wide with the exception of the xmm regs that are 16 bytes wide
+;
+; ----------------|
+; useAVXmemmove   | <- original value of runtime.useAVXmemmove
+;-----------------|
+; xmm regs (16)   |
+;-----------------| <- RBP will point at the last pushed GP reg
+; gp regs (15)    | 
+;-----------------|
+; handler address | <- pushed by gate_entry_xxx (RSP initially points here)
+;-----------------|
+; RIP             | <- pushed by CPU (exception frame)
+; CS              |
+; RFLAGS          |
+; RSP             |
+; SS              |
+;-----------------
 ;------------------------------------------------------------------------------
 _rt0_64_gate_dispatcher_without_code:
-	; This is how the stack looks like when entering this function:
-	; (each item is 8-bytes wide)
-	;
-	;------------------
-	; handler address | <- pushed by gate_entry_xxx (RSP points here)
-	;-----------------|
-	; RIP             | <- exception frame
-	; CS              |
-	; RFLAGS          |
-	; RSP             |
-	; SS              |
-	;-----------------
 	cld
 
-	; save regs and push a pointer to them
-	save_regs
-	mov rax, rsp   ; rax points to saved rax
-	push rax       ; push pointer to saved regs
+	; save general-purpose regs
+	save_gp_regs
+	mov rbp, rsp   ; rbp points to saved rax
 
-	; push pointer to exception stack frame (we have used 15 qwords for the
-	; saved registers plus one qword for the data pushed by the gate entry)
-	add rax, 16*8
-	push rax
+	; save xmm regs as the fault handler may clobber them by calling an 
+	; SSE-enabled runtime function like copy (calls runtime.memmove). In 
+	; addition temporarily disable AVX support for runtime.memmove so we 
+	; don't need to also preserve the avx regs.
+	save_xmm_regs
+	mov rax, runtime.useAVXmemmove
+	push qword [rax] 
+	mov byte [rax], 0
 
-	call [rsp + 17*8] ; call registered irq handler
+	; push exception handler args and call registered handler
+	push qword [rbp]         ; ptr to regs
+	push qword [rbp+16*8]    ; ptr to exception frame 
+	call qword [rbp+15*8]
+	add rsp, 2 * 8 
 
-	add rsp, 2 * 8    ; unshift the pushed arguments so rsp points to the saved regs
-	restore_regs
+	; restore xmm regs and restore AVX support for runtime.memmove
+	mov rax, runtime.useAVXmemmove
+	pop rbx
+	mov byte [rax], bl
+	restore_xmm_regs
 
-	add rsp, 8	  ; pop handler address off the stack before returning
+	; restore general purpose regs
+	restore_gp_regs
+
+	; pop handler address so RSP points to the stack frame.
+	add rsp, 8
 	iretq
 
 ;------------------------------------------------------------------------------

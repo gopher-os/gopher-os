@@ -32,7 +32,8 @@ GOROOT := $(shell $(GO) env GOROOT)
 GC_FLAGS ?=
 LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
 AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I src/arch/$(ARCH)/asm/ \
-	    -dNUM_REDIRECTS=$(shell GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go count)
+	    -dNUM_REDIRECTS=$(shell GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go count) \
+	    -dWITH_RUNTIME_AVXMEMMOVE=$(shell grep -r "var useAVXmemmove" $(GOROOT)/src/runtime/ | wc -l)
 
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
@@ -74,13 +75,14 @@ go.o:
 	@# objcopy to make that symbol exportable. Since nasm does not support externs
 	@# with slashes we create a global symbol alias for kernel.Kmain
 	@echo "[objcopy] create kernel.Kmain alias to gopheros/kernel/kmain.Kmain"
-	@echo "[objcopy] globalizing symbols {_rt0_interrupt_handlers, runtime.g0/m0/physPageSize}"
+	@echo "[objcopy] globalizing symbols {_rt0_interrupt_handlers, runtime.g0/m0/physPageSize/useAVXmemmove}"
 	@objcopy \
 		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kmain.Kmain$$" | cut -d' ' -f1` \
 		--globalize-symbol _rt0_interrupt_handlers \
 		--globalize-symbol runtime.g0 \
 		--globalize-symbol runtime.m0 \
 		--globalize-symbol runtime.physPageSize \
+		--globalize-symbol runtime.useAVXmemmove \
 		 $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
 
 binutils_version_check:
