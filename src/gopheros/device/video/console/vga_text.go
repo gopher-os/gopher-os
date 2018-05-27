@@ -3,11 +3,11 @@ package console
 import (
 	"gopheros/device"
 	"gopheros/kernel"
-	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mem"
 	"gopheros/kernel/mem/pmm"
 	"gopheros/kernel/mem/vmm"
+	"gopheros/multiboot"
 	"image/color"
 	"io"
 	"reflect"

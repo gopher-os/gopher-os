@@ -4,8 +4,8 @@ import (
 	"gopheros/device/video/console/font"
 	"gopheros/device/video/console/logo"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/mem/vmm"
+	"gopheros/multiboot"
 	"image/color"
 )
 
