@@ -1,22 +1,17 @@
-package allocator
+package pmm
 
 import (
 	"gopheros/kernel"
-	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
+	"gopheros/kernel/mm"
+	"gopheros/multiboot"
 )
 
 var (
-	// earlyAllocator is a boot mem allocator instance used for page
-	// allocations before switching to a more advanced allocator.
-	earlyAllocator bootMemAllocator
-
 	errBootAllocOutOfMemory = &kernel.Error{Module: "boot_mem_alloc", Message: "out of memory"}
 )
 
-// bootMemAllocator implements a rudimentary physical memory allocator which is
+// BootMemAllocator implements a rudimentary physical memory allocator which is
 // used to bootstrap the kernel.
 //
 // The allocator implementation uses the memory region information provided by
@@ -28,27 +23,27 @@ var (
 // allocated pages. Once the kernel is properly initialized, the allocated
 // blocks will be handed over to a more advanced memory allocator that does
 // support freeing.
-type bootMemAllocator struct {
+type BootMemAllocator struct {
 	// allocCount tracks the total number of allocated frames.
 	allocCount uint64
 
 	// lastAllocFrame tracks the last allocated frame number.
-	lastAllocFrame pmm.Frame
+	lastAllocFrame mm.Frame
 
 	// Keep track of kernel location so we exclude this region.
 	kernelStartAddr, kernelEndAddr   uintptr
-	kernelStartFrame, kernelEndFrame pmm.Frame
+	kernelStartFrame, kernelEndFrame mm.Frame
 }
 
 // init sets up the boot memory allocator internal state.
-func (alloc *bootMemAllocator) init(kernelStart, kernelEnd uintptr) {
+func (alloc *BootMemAllocator) init(kernelStart, kernelEnd uintptr) {
 	// round down kernel start to the nearest page and round up kernel end
 	// to the nearest page.
-	pageSizeMinus1 := uintptr(mem.PageSize - 1)
+	pageSizeMinus1 := mm.PageSize - 1
 	alloc.kernelStartAddr = kernelStart
 	alloc.kernelEndAddr = kernelEnd
-	alloc.kernelStartFrame = pmm.Frame((kernelStart & ^pageSizeMinus1) >> mem.PageShift)
-	alloc.kernelEndFrame = pmm.Frame(((kernelEnd+pageSizeMinus1) & ^pageSizeMinus1)>>mem.PageShift) - 1
+	alloc.kernelStartFrame = mm.Frame((kernelStart & ^pageSizeMinus1) >> mm.PageShift)
+	alloc.kernelEndFrame = mm.Frame(((kernelEnd+pageSizeMinus1) & ^pageSizeMinus1)>>mm.PageShift) - 1
 
 }
 
@@ -56,20 +51,20 @@ func (alloc *bootMemAllocator) init(kernelStart, kernelEnd uintptr) {
 // reserves the next available free frame.
 //
 // AllocFrame returns an error if no more memory can be allocated.
-func (alloc *bootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
+func (alloc *BootMemAllocator) AllocFrame() (mm.Frame, *kernel.Error) {
 	var err = errBootAllocOutOfMemory
 
 	multiboot.VisitMemRegions(func(region *multiboot.MemoryMapEntry) bool {
 		// Ignore reserved regions and regions smaller than a single page
-		if region.Type != multiboot.MemAvailable || region.Length < uint64(mem.PageSize) {
+		if region.Type != multiboot.MemAvailable || region.Length < uint64(mm.PageSize) {
 			return true
 		}
 
 		// Reported addresses may not be page-aligned; round up to get
 		// the start frame and round down to get the end frame
-		pageSizeMinus1 := uint64(mem.PageSize - 1)
-		regionStartFrame := pmm.Frame(((region.PhysAddress + pageSizeMinus1) & ^pageSizeMinus1) >> mem.PageShift)
-		regionEndFrame := pmm.Frame(((region.PhysAddress+region.Length) & ^pageSizeMinus1)>>mem.PageShift) - 1
+		pageSizeMinus1 := uint64(mm.PageSize - 1)
+		regionStartFrame := mm.Frame(((region.PhysAddress + pageSizeMinus1) & ^pageSizeMinus1) >> mm.PageShift)
+		regionEndFrame := mm.Frame(((region.PhysAddress+region.Length) & ^pageSizeMinus1)>>mm.PageShift) - 1
 
 		// Skip over already allocated regions
 		if alloc.lastAllocFrame >= regionEndFrame {
@@ -107,7 +102,7 @@ func (alloc *bootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
 	})
 
 	if err != nil {
-		return pmm.InvalidFrame, errBootAllocOutOfMemory
+		return mm.InvalidFrame, errBootAllocOutOfMemory
 	}
 
 	alloc.allocCount++
@@ -116,18 +111,18 @@ func (alloc *bootMemAllocator) AllocFrame() (pmm.Frame, *kernel.Error) {
 
 // printMemoryMap scans the memory region information provided by the
 // bootloader and prints out the system's memory map.
-func (alloc *bootMemAllocator) printMemoryMap() {
+func (alloc *BootMemAllocator) printMemoryMap() {
 	kfmt.Printf("[boot_mem_alloc] system memory map:\n")
-	var totalFree mem.Size
+	var totalFree uint64
 	multiboot.VisitMemRegions(func(region *multiboot.MemoryMapEntry) bool {
 		kfmt.Printf("\t[0x%10x - 0x%10x], size: %10d, type: %s\n", region.PhysAddress, region.PhysAddress+region.Length, region.Length, region.Type.String())
 
 		if region.Type == multiboot.MemAvailable {
-			totalFree += mem.Size(region.Length)
+			totalFree += region.Length
 		}
 		return true
 	})
-	kfmt.Printf("[boot_mem_alloc] available memory: %dKb\n", uint64(totalFree/mem.Kb))
+	kfmt.Printf("[boot_mem_alloc] available memory: %dKb\n", totalFree/1024)
 	kfmt.Printf("[boot_mem_alloc] kernel loaded at 0x%x - 0x%x\n", alloc.kernelStartAddr, alloc.kernelEndAddr)
 	kfmt.Printf("[boot_mem_alloc] size: %d bytes, reserved pages: %d\n",
 		uint64(alloc.kernelEndAddr-alloc.kernelStartAddr),

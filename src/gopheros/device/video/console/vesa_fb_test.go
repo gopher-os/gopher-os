@@ -8,9 +8,8 @@ import (
 	"gopheros/device/video/console/logo"
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
 	"gopheros/multiboot"
 	"image/color"
 	"reflect"
@@ -1453,7 +1452,7 @@ func TestVesaFbDriverInterface(t *testing.T) {
 	}
 
 	t.Run("init success", func(t *testing.T) {
-		mapRegionFn = func(_ pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+		mapRegionFn = func(_ mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 			return 0xa0000, nil
 		}
 
@@ -1466,7 +1465,7 @@ func TestVesaFbDriverInterface(t *testing.T) {
 
 	t.Run("init fail", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "something went wrong"}
-		mapRegionFn = func(_ pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+		mapRegionFn = func(_ mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 			return 0, expErr
 		}
 

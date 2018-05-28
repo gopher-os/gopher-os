@@ -2,8 +2,7 @@ package vmm
 
 import (
 	"gopheros/kernel"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
+	"gopheros/kernel/mm"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -25,17 +24,17 @@ func TestMapTemporaryAmd64(t *testing.T) {
 		ptePtrFn = origPtePtr
 		nextAddrFn = origNextAddrFn
 		flushTLBEntryFn = origFlushTLBEntryFn
-		frameAllocator = nil
+		mm.SetFrameAllocator(nil)
 	}(ptePtrFn, nextAddrFn, flushTLBEntryFn)
 
-	var physPages [pageLevels][mem.PageSize >> mem.PointerShift]pageTableEntry
+	var physPages [pageLevels][mm.PageSize >> mm.PointerShift]pageTableEntry
 	nextPhysPage := 0
 
 	// allocFn returns pages from index 1; we keep index 0 for the P4 entry
-	SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+	mm.SetFrameAllocator(func() (mm.Frame, *kernel.Error) {
 		nextPhysPage++
 		pageAddr := unsafe.Pointer(&physPages[nextPhysPage][0])
-		return pmm.Frame(uintptr(pageAddr) >> mem.PageShift), nil
+		return mm.Frame(uintptr(pageAddr) >> mm.PageShift), nil
 	})
 
 	pteCallCount := 0
@@ -43,7 +42,7 @@ func TestMapTemporaryAmd64(t *testing.T) {
 		pteCallCount++
 		// The last 12 bits encode the page table offset in bytes
 		// which we need to convert to a uint64 entry
-		pteIndex := (entry & uintptr(mem.PageSize-1)) >> mem.PointerShift
+		pteIndex := (entry & uintptr(mm.PageSize-1)) >> mm.PointerShift
 		return unsafe.Pointer(&physPages[pteCallCount-1][pteIndex])
 	}
 
@@ -61,7 +60,7 @@ func TestMapTemporaryAmd64(t *testing.T) {
 	// p3 index: 511
 	// p2 index: 511
 	// p1 index: 511
-	frame := pmm.Frame(123)
+	frame := mm.Frame(123)
 	levelIndices := []uint{510, 511, 511, 511}
 
 	page, err := MapTemporary(frame)
@@ -81,7 +80,7 @@ func TestMapTemporaryAmd64(t *testing.T) {
 
 		switch {
 		case level < pageLevels-1:
-			if exp, got := pmm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0]))>>mem.PageShift), pte.Frame(); got != exp {
+			if exp, got := mm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0]))>>mm.PageShift), pte.Frame(); got != exp {
 				t.Errorf("[pte at level %d] expected entry frame to be %d; got %d", level, exp, got)
 			}
 		default:
@@ -105,18 +104,18 @@ func TestMapRegion(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mapCallCount := 0
-		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+		mapFn = func(_ mm.Page, _ mm.Frame, flags PageTableEntryFlag) *kernel.Error {
 			mapCallCount++
 			return nil
 		}
 
 		earlyReserveRegionCallCount := 0
-		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		earlyReserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			earlyReserveRegionCallCount++
 			return 0xf00, nil
 		}
 
-		if _, err := MapRegion(pmm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
+		if _, err := MapRegion(mm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
 			t.Fatal(err)
 		}
 
@@ -132,11 +131,11 @@ func TestMapRegion(t *testing.T) {
 	t.Run("EarlyReserveRegion fails", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "out of address space"}
 
-		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		earlyReserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			return 0, expErr
 		}
 
-		if _, err := MapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+		if _, err := MapRegion(mm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 	})
@@ -145,16 +144,16 @@ func TestMapRegion(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "map failed"}
 
 		earlyReserveRegionCallCount := 0
-		earlyReserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		earlyReserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			earlyReserveRegionCallCount++
 			return 0xf00, nil
 		}
 
-		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+		mapFn = func(_ mm.Page, _ mm.Frame, flags PageTableEntryFlag) *kernel.Error {
 			return expErr
 		}
 
-		if _, err := MapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+		if _, err := MapRegion(mm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 
@@ -171,12 +170,12 @@ func TestIdentityMapRegion(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mapCallCount := 0
-		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+		mapFn = func(_ mm.Page, _ mm.Frame, flags PageTableEntryFlag) *kernel.Error {
 			mapCallCount++
 			return nil
 		}
 
-		if _, err := IdentityMapRegion(pmm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
+		if _, err := IdentityMapRegion(mm.Frame(0xdf0000), 4097, FlagPresent|FlagRW); err != nil {
 			t.Fatal(err)
 		}
 
@@ -188,11 +187,11 @@ func TestIdentityMapRegion(t *testing.T) {
 	t.Run("Map fails", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "map failed"}
 
-		mapFn = func(_ Page, _ pmm.Frame, flags PageTableEntryFlag) *kernel.Error {
+		mapFn = func(_ mm.Page, _ mm.Frame, flags PageTableEntryFlag) *kernel.Error {
 			return expErr
 		}
 
-		if _, err := IdentityMapRegion(pmm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
+		if _, err := IdentityMapRegion(mm.Frame(0xdf0000), 128000, FlagPresent|FlagRW); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
 		}
 	})
@@ -209,11 +208,11 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 		flushTLBEntryFn = origFlushTLBEntryFn
 	}(ptePtrFn, nextAddrFn, flushTLBEntryFn)
 
-	var physPages [pageLevels][mem.PageSize >> mem.PointerShift]pageTableEntry
+	var physPages [pageLevels][mm.PageSize >> mm.PointerShift]pageTableEntry
 
 	// The reserved virt address uses the following page level indices: 510, 511, 511, 511
 	p4Index := 510
-	frame := pmm.Frame(123)
+	frame := mm.Frame(123)
 
 	t.Run("encounter huge page", func(t *testing.T) {
 		physPages[0][p4Index].SetFlags(FlagPresent | FlagHugePage)
@@ -221,7 +220,7 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 		ptePtrFn = func(entry uintptr) unsafe.Pointer {
 			// The last 12 bits encode the page table offset in bytes
 			// which we need to convert to a uint64 entry
-			pteIndex := (entry & uintptr(mem.PageSize-1)) >> mem.PointerShift
+			pteIndex := (entry & uintptr(mm.PageSize-1)) >> mm.PointerShift
 			return unsafe.Pointer(&physPages[0][pteIndex])
 		}
 
@@ -231,12 +230,12 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 	})
 
 	t.Run("allocFn returns an error", func(t *testing.T) {
-		defer func() { frameAllocator = nil }()
+		defer func() { mm.SetFrameAllocator(nil) }()
 		physPages[0][p4Index] = 0
 
-		expErr := &kernel.Error{Module: "test", Message: "out of memory"}
+		expErr := &kernel.Error{Module: "test", Message: "out of mmory"}
 
-		SetFrameAllocator(func() (pmm.Frame, *kernel.Error) {
+		mm.SetFrameAllocator(func() (mm.Frame, *kernel.Error) {
 			return 0, expErr
 		})
 
@@ -249,7 +248,7 @@ func TestMapTemporaryErrorsAmd64(t *testing.T) {
 		defer func() { protectReservedZeroedPage = false }()
 
 		protectReservedZeroedPage = true
-		if err := Map(Page(0), ReservedZeroedFrame, FlagRW); err != errAttemptToRWMapReservedFrame {
+		if err := Map(mm.Page(0), ReservedZeroedFrame, FlagRW); err != errAttemptToRWMapReservedFrame {
 			t.Fatalf("expected errAttemptToRWMapReservedFrame; got: %v", err)
 		}
 	})
@@ -275,15 +274,15 @@ func TestUnmapAmd64(t *testing.T) {
 	}(ptePtrFn, flushTLBEntryFn)
 
 	var (
-		physPages [pageLevels][mem.PageSize >> mem.PointerShift]pageTableEntry
-		frame     = pmm.Frame(123)
+		physPages [pageLevels][mm.PageSize >> mm.PointerShift]pageTableEntry
+		frame     = mm.Frame(123)
 	)
 
 	// Emulate a page mapped to virtAddr 0 across all page levels
 	for level := 0; level < pageLevels; level++ {
 		physPages[level][0].SetFlags(FlagPresent | FlagRW)
 		if level < pageLevels-1 {
-			physPages[level][0].SetFrame(pmm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0])) >> mem.PageShift))
+			physPages[level][0].SetFrame(mm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0])) >> mm.PageShift))
 		} else {
 			physPages[level][0].SetFrame(frame)
 
@@ -301,7 +300,7 @@ func TestUnmapAmd64(t *testing.T) {
 		flushTLBEntryCallCount++
 	}
 
-	if err := Unmap(PageFromAddress(0)); err != nil {
+	if err := Unmap(mm.PageFromAddress(0)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -313,7 +312,7 @@ func TestUnmapAmd64(t *testing.T) {
 			if !pte.HasFlags(FlagPresent) {
 				t.Errorf("[pte at level %d] expected entry to retain have FlagPresent set", level)
 			}
-			if exp, got := pmm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0]))>>mem.PageShift), pte.Frame(); got != exp {
+			if exp, got := mm.Frame(uintptr(unsafe.Pointer(&physPages[level+1][0]))>>mm.PageShift), pte.Frame(); got != exp {
 				t.Errorf("[pte at level %d] expected entry frame to still be %d; got %d", level, exp, got)
 			}
 		default:
@@ -344,7 +343,7 @@ func TestUnmapErrorsAmd64(t *testing.T) {
 		flushTLBEntryFn = origFlushTLBEntryFn
 	}(ptePtrFn, nextAddrFn, flushTLBEntryFn)
 
-	var physPages [pageLevels][mem.PageSize >> mem.PointerShift]pageTableEntry
+	var physPages [pageLevels][mm.PageSize >> mm.PointerShift]pageTableEntry
 
 	t.Run("encounter huge page", func(t *testing.T) {
 		physPages[0][0].SetFlags(FlagPresent | FlagHugePage)
@@ -352,11 +351,11 @@ func TestUnmapErrorsAmd64(t *testing.T) {
 		ptePtrFn = func(entry uintptr) unsafe.Pointer {
 			// The last 12 bits encode the page table offset in bytes
 			// which we need to convert to a uint64 entry
-			pteIndex := (entry & uintptr(mem.PageSize-1)) >> mem.PointerShift
+			pteIndex := (entry & uintptr(mm.PageSize-1)) >> mm.PointerShift
 			return unsafe.Pointer(&physPages[0][pteIndex])
 		}
 
-		if err := Unmap(PageFromAddress(0)); err != errNoHugePageSupport {
+		if err := Unmap(mm.PageFromAddress(0)); err != errNoHugePageSupport {
 			t.Fatalf("expected to get errNoHugePageSupport; got %v", err)
 		}
 	})
@@ -364,8 +363,63 @@ func TestUnmapErrorsAmd64(t *testing.T) {
 	t.Run("virtual address not mapped", func(t *testing.T) {
 		physPages[0][0].ClearFlags(FlagPresent)
 
-		if err := Unmap(PageFromAddress(0)); err != ErrInvalidMapping {
+		if err := Unmap(mm.PageFromAddress(0)); err != ErrInvalidMapping {
 			t.Fatalf("expected to get ErrInvalidMapping; got %v", err)
 		}
 	})
+}
+
+func TestTranslateAmd64(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("test requires amd64 runtime; skipping")
+	}
+
+	defer func(origPtePtr func(uintptr) unsafe.Pointer) {
+		ptePtrFn = origPtePtr
+	}(ptePtrFn)
+
+	// the virtual address just contains the page offset
+	virtAddr := uintptr(1234)
+	expFrame := mm.Frame(42)
+	expPhysAddr := expFrame.Address() + virtAddr
+	specs := [][pageLevels]bool{
+		{true, true, true, true},
+		{false, true, true, true},
+		{true, false, true, true},
+		{true, true, false, true},
+		{true, true, true, false},
+	}
+
+	for specIndex, spec := range specs {
+		pteCallCount := 0
+		ptePtrFn = func(entry uintptr) unsafe.Pointer {
+			var pte pageTableEntry
+			pte.SetFrame(expFrame)
+			if specs[specIndex][pteCallCount] {
+				pte.SetFlags(FlagPresent)
+			}
+			pteCallCount++
+
+			return unsafe.Pointer(&pte)
+		}
+
+		// An error is expected if any page level contains a non-present page
+		expError := false
+		for _, hasMapping := range spec {
+			if !hasMapping {
+				expError = true
+				break
+			}
+		}
+
+		physAddr, err := Translate(virtAddr)
+		switch {
+		case expError && err != ErrInvalidMapping:
+			t.Errorf("[spec %d] expected to get ErrInvalidMapping; got %v", specIndex, err)
+		case !expError && err != nil:
+			t.Errorf("[spec %d] unexpected error %v", specIndex, err)
+		case !expError && physAddr != expPhysAddr:
+			t.Errorf("[spec %d] expected phys addr to be 0x%x; got 0x%x", specIndex, expPhysAddr, physAddr)
+		}
+	}
 }

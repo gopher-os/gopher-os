@@ -3,9 +3,8 @@ package acpi
 import (
 	"gopheros/device/acpi/table"
 	"gopheros/kernel"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -28,8 +27,8 @@ func TestProbe(t *testing.T) {
 	}(rsdpLocationLow, rsdpLocationHi, rsdpAlignment)
 
 	t.Run("ACPI1", func(t *testing.T) {
-		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
-		unmapFn = func(_ vmm.Page) *kernel.Error { return nil }
+		mapFn = func(_ mm.Page, _ mm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
+		unmapFn = func(_ mm.Page) *kernel.Error { return nil }
 
 		// Allocate space for 2 descriptors; leave the first entry
 		// blank to test that locateRSDT will jump over it and populate
@@ -68,8 +67,8 @@ func TestProbe(t *testing.T) {
 	})
 
 	t.Run("ACPI2+", func(t *testing.T) {
-		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
-		unmapFn = func(_ vmm.Page) *kernel.Error { return nil }
+		mapFn = func(_ mm.Page, _ mm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
+		unmapFn = func(_ mm.Page) *kernel.Error { return nil }
 
 		// Allocate space for 2 descriptors; leave the first entry
 		// blank to test that locateRSDT will jump over it and populate
@@ -109,8 +108,8 @@ func TestProbe(t *testing.T) {
 	})
 
 	t.Run("RSDP ACPI1 checksum mismatch", func(t *testing.T) {
-		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
-		unmapFn = func(_ vmm.Page) *kernel.Error { return nil }
+		mapFn = func(_ mm.Page, _ mm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
+		unmapFn = func(_ mm.Page) *kernel.Error { return nil }
 
 		sizeofRSDP := unsafe.Sizeof(table.RSDPDescriptor{})
 		buf := make([]byte, sizeofRSDP)
@@ -134,8 +133,8 @@ func TestProbe(t *testing.T) {
 	})
 
 	t.Run("RSDP ACPI2+ checksum mismatch", func(t *testing.T) {
-		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
-		unmapFn = func(_ vmm.Page) *kernel.Error { return nil }
+		mapFn = func(_ mm.Page, _ mm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return nil }
+		unmapFn = func(_ mm.Page) *kernel.Error { return nil }
 
 		sizeofExtRSDP := unsafe.Sizeof(table.ExtRSDPDescriptor{})
 		buf := make([]byte, sizeofExtRSDP)
@@ -160,8 +159,8 @@ func TestProbe(t *testing.T) {
 
 	t.Run("error mapping rsdp memory block", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "vmm.Map failed"}
-		mapFn = func(_ vmm.Page, _ pmm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return expErr }
-		unmapFn = func(_ vmm.Page) *kernel.Error { return nil }
+		mapFn = func(_ mm.Page, _ mm.Frame, _ vmm.PageTableEntryFlag) *kernel.Error { return expErr }
+		unmapFn = func(_ mm.Page) *kernel.Error { return nil }
 
 		drv := probeForACPI()
 		if drv != nil {
@@ -177,8 +176,8 @@ func TestDriverInit(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		rsdtAddr, _ := genTestRDST(t, acpiRev2Plus)
-		identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
-			return vmm.Page(frame), nil
+		identityMapFn = func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
+			return mm.Page(frame), nil
 		}
 
 		drv := &acpiDriver{
@@ -204,27 +203,27 @@ func TestDriverInit(t *testing.T) {
 			useXSDT:  true,
 		}
 
-		specs := []func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error){
-			func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+		specs := []func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error){
+			func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 				// fail while trying to map RSDT
 				return 0, expErr
 			},
-			func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+			func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 				// fail while trying to map any other ACPI table
 				callCount++
 				if callCount > 2 {
 					return 0, expErr
 				}
-				return vmm.Page(frame), nil
+				return mm.Page(frame), nil
 			},
-			func(frame pmm.Frame, size mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+			func(frame mm.Frame, size uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 				// fail while trying to map DSDT
 				for _, header := range tableList {
 					if header.Length == uint32(size) && string(header.Signature[:]) == dsdtSignature {
 						return 0, expErr
 					}
 				}
-				return vmm.Page(frame), nil
+				return mm.Page(frame), nil
 			},
 		}
 
@@ -249,16 +248,16 @@ func TestEnumerateTables(t *testing.T) {
 	t.Run("ACPI1", func(t *testing.T) {
 		rsdtAddr, tableList := genTestRDST(t, acpiRev1)
 
-		identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+		identityMapFn = func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 			// The frame encodes the table index we need to lookup (see genTestRDST)
 			nextTableIndex := int(frame)
 			if nextTableIndex >= len(tableList) {
 				// This is the RSDT
-				return vmm.Page(frame), nil
+				return mm.Page(frame), nil
 			}
 
 			header := tableList[nextTableIndex]
-			return vmm.PageFromAddress(uintptr(unsafe.Pointer(header))), nil
+			return mm.PageFromAddress(uintptr(unsafe.Pointer(header))), nil
 		}
 
 		drv := &acpiDriver{
@@ -285,8 +284,8 @@ func TestEnumerateTables(t *testing.T) {
 
 	t.Run("ACPI2+", func(t *testing.T) {
 		rsdtAddr, _ := genTestRDST(t, acpiRev2Plus)
-		identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
-			return vmm.Page(frame), nil
+		identityMapFn = func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
+			return mm.Page(frame), nil
 		}
 
 		drv := &acpiDriver{
@@ -311,8 +310,8 @@ func TestEnumerateTables(t *testing.T) {
 
 	t.Run("checksum mismatch", func(t *testing.T) {
 		rsdtAddr, tableList := genTestRDST(t, acpiRev2Plus)
-		identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
-			return vmm.Page(frame), nil
+		identityMapFn = func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
+			return mm.Page(frame), nil
 		}
 
 		// Set bad checksum for "SSDT" and "DSDT"
@@ -357,13 +356,13 @@ func TestMapACPITableErrors(t *testing.T) {
 		header    table.SDTHeader
 	)
 
-	identityMapFn = func(frame pmm.Frame, _ mem.Size, _ vmm.PageTableEntryFlag) (vmm.Page, *kernel.Error) {
+	identityMapFn = func(frame mm.Frame, _ uintptr, _ vmm.PageTableEntryFlag) (mm.Page, *kernel.Error) {
 		callCount++
 		if callCount >= 2 {
 			return 0, expErr
 		}
 
-		return vmm.PageFromAddress(uintptr(unsafe.Pointer(&header))), nil
+		return mm.PageFromAddress(uintptr(unsafe.Pointer(&header))), nil
 	}
 
 	// Test errors while mapping the table contents and the table header
@@ -414,7 +413,7 @@ func genTestRDST(t *testing.T, acpiVersion uint8) (rsdtAddr uintptr, tableList [
 			// The test code will hook identityMapFn to reconstruct the
 			// correct pointer to the table contents.
 			offset := vmm.PageOffset(uintptr(unsafe.Pointer(dsdt)))
-			encodedTableLoc := (uintptr(dsdtIndex) << mem.PageShift) + offset
+			encodedTableLoc := (uintptr(dsdtIndex) << mm.PageShift) + offset
 			fadtHeader.Dsdt = uint32(encodedTableLoc)
 		} else {
 			fadtHeader.Ext.Dsdt = uint64(uintptr(unsafe.Pointer(dsdt)))
@@ -443,7 +442,7 @@ func genTestRDST(t *testing.T, acpiVersion uint8) (rsdtAddr uintptr, tableList [
 		// correct pointer to the table contents.
 		for index, tableHeader := range tableList {
 			offset := vmm.PageOffset(uintptr(unsafe.Pointer(tableHeader)))
-			encodedTableLoc := (uintptr(index) << mem.PageShift) + offset
+			encodedTableLoc := (uintptr(index) << mm.PageShift) + offset
 
 			*(*uint32)(unsafe.Pointer(&buf[rsdtHeader.Length])) = uint32(encodedTableLoc)
 			rsdtHeader.Length += 4

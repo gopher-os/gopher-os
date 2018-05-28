@@ -4,17 +4,15 @@ package goruntime
 
 import (
 	"gopheros/kernel"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm/allocator"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
 	"unsafe"
 )
 
 var (
 	mapFn                = vmm.Map
 	earlyReserveRegionFn = vmm.EarlyReserveRegion
-	memsetFn             = mem.Memset
-	frameAllocFn         = allocator.AllocFrame
+	memsetFn             = kernel.Memset
 	mallocInitFn         = mallocInit
 	algInitFn            = algInit
 	modulesInitFn        = modulesInit
@@ -53,7 +51,7 @@ func runtimeInit() {
 //go:redirect-from runtime.sysReserve
 //go:nosplit
 func sysReserve(_ unsafe.Pointer, size uintptr, reserved *bool) unsafe.Pointer {
-	regionSize := (mem.Size(size) + mem.PageSize - 1) & ^(mem.PageSize - 1)
+	regionSize := (size + mm.PageSize - 1) & ^(mm.PageSize - 1)
 	regionStartAddr, err := earlyReserveRegionFn(regionSize)
 	if err != nil {
 		panic(err)
@@ -77,12 +75,12 @@ func sysMap(virtAddr unsafe.Pointer, size uintptr, reserved bool, sysStat *uint6
 	}
 
 	// We trust the allocator to call sysMap with an address inside a reserved region.
-	regionStartAddr := (uintptr(virtAddr) + uintptr(mem.PageSize-1)) & ^uintptr(mem.PageSize-1)
-	regionSize := (mem.Size(size) + mem.PageSize - 1) & ^(mem.PageSize - 1)
-	pageCount := regionSize >> mem.PageShift
+	regionStartAddr := (uintptr(virtAddr) + uintptr(mm.PageSize-1)) & ^uintptr(mm.PageSize-1)
+	regionSize := (size + mm.PageSize - 1) & ^(mm.PageSize - 1)
+	pageCount := regionSize >> mm.PageShift
 
 	mapFlags := vmm.FlagPresent | vmm.FlagNoExecute | vmm.FlagCopyOnWrite
-	for page := vmm.PageFromAddress(regionStartAddr); pageCount > 0; pageCount, page = pageCount-1, page+1 {
+	for page := mm.PageFromAddress(regionStartAddr); pageCount > 0; pageCount, page = pageCount-1, page+1 {
 		if err := mapFn(page, vmm.ReservedZeroedFrame, mapFlags); err != nil {
 			return unsafe.Pointer(uintptr(0))
 		}
@@ -102,16 +100,16 @@ func sysMap(virtAddr unsafe.Pointer, size uintptr, reserved bool, sysStat *uint6
 //go:redirect-from runtime.sysAlloc
 //go:nosplit
 func sysAlloc(size uintptr, sysStat *uint64) unsafe.Pointer {
-	regionSize := (mem.Size(size) + mem.PageSize - 1) & ^(mem.PageSize - 1)
+	regionSize := (size + mm.PageSize - 1) & ^(mm.PageSize - 1)
 	regionStartAddr, err := earlyReserveRegionFn(regionSize)
 	if err != nil {
 		return unsafe.Pointer(uintptr(0))
 	}
 
 	mapFlags := vmm.FlagPresent | vmm.FlagNoExecute | vmm.FlagRW
-	pageCount := regionSize >> mem.PageShift
-	for page := vmm.PageFromAddress(regionStartAddr); pageCount > 0; pageCount, page = pageCount-1, page+1 {
-		frame, err := frameAllocFn()
+	pageCount := regionSize >> mm.PageShift
+	for page := mm.PageFromAddress(regionStartAddr); pageCount > 0; pageCount, page = pageCount-1, page+1 {
+		frame, err := mm.AllocFrame()
 		if err != nil {
 			return unsafe.Pointer(uintptr(0))
 		}
@@ -120,7 +118,7 @@ func sysAlloc(size uintptr, sysStat *uint64) unsafe.Pointer {
 			return unsafe.Pointer(uintptr(0))
 		}
 
-		memsetFn(page.Address(), 0, mem.PageSize)
+		memsetFn(page.Address(), 0, mm.PageSize)
 	}
 
 	mSysStatInc(sysStat, uintptr(regionSize))

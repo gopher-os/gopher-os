@@ -4,9 +4,8 @@ import (
 	"gopheros/device"
 	"gopheros/kernel"
 	"gopheros/kernel/kfmt"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
 	"gopheros/multiboot"
 	"image/color"
 	"io"
@@ -209,9 +208,9 @@ func (cons *VgaTextConsole) DriverVersion() (uint16, uint16, uint16) {
 // DriverInit initializes this driver.
 func (cons *VgaTextConsole) DriverInit(w io.Writer) *kernel.Error {
 	// Map the framebuffer so we can write to it
-	fbSize := mem.Size(cons.width * cons.height * 2)
+	fbSize := uintptr(cons.width * cons.height * 2)
 	fbPage, err := mapRegionFn(
-		pmm.Frame(cons.fbPhysAddr>>mem.PageShift),
+		mm.Frame(cons.fbPhysAddr>>mm.PageShift),
 		fbSize,
 		vmm.FlagPresent|vmm.FlagRW,
 	)

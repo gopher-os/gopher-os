@@ -1,7 +1,7 @@
-package allocator
+package pmm
 
 import (
-	"gopheros/kernel/hal/multiboot"
+	"gopheros/multiboot"
 	"testing"
 	"unsafe"
 )
@@ -59,7 +59,7 @@ func TestBootMemoryAllocator(t *testing.T) {
 		},
 	}
 
-	var alloc bootMemAllocator
+	var alloc BootMemAllocator
 	for specIndex, spec := range specs {
 		alloc.allocCount = 0
 		alloc.lastAllocFrame = 0

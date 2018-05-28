@@ -1,11 +1,10 @@
-package allocator
+package pmm
 
 import (
 	"gopheros/kernel"
-	"gopheros/kernel/hal/multiboot"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
+	"gopheros/multiboot"
 	"math"
 	"strconv"
 	"testing"
@@ -24,7 +23,7 @@ func TestSetupPoolBitmaps(t *testing.T) {
 	// The allocator will need to reserve 2 pages to store the bitmap data.
 	var (
 		alloc   BitmapAllocator
-		physMem = make([]byte, 2*mem.PageSize)
+		physMem = make([]byte, 2*mm.PageSize)
 	)
 
 	// Init phys mem with junk
@@ -33,13 +32,13 @@ func TestSetupPoolBitmaps(t *testing.T) {
 	}
 
 	mapCallCount := 0
-	mapFn = func(page vmm.Page, frame pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
+	mapFn = func(page mm.Page, frame mm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
 		mapCallCount++
 		return nil
 	}
 
 	reserveCallCount := 0
-	reserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+	reserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 		reserveCallCount++
 		return uintptr(unsafe.Pointer(&physMem[0])), nil
 	}
@@ -89,7 +88,7 @@ func TestSetupPoolBitmapsErrors(t *testing.T) {
 	t.Run("vmm.EarlyReserveRegion returns an error", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "something went wrong"}
 
-		reserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		reserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			return 0, expErr
 		}
 
@@ -100,11 +99,11 @@ func TestSetupPoolBitmapsErrors(t *testing.T) {
 	t.Run("vmm.Map returns an error", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "something went wrong"}
 
-		reserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		reserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			return 0, nil
 		}
 
-		mapFn = func(page vmm.Page, frame pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
+		mapFn = func(page mm.Page, frame mm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
 			return expErr
 		}
 
@@ -113,7 +112,7 @@ func TestSetupPoolBitmapsErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("earlyAllocator returns an error", func(t *testing.T) {
+	t.Run("bootMemAllocator returns an error", func(t *testing.T) {
 		emptyInfoData := []byte{
 			0, 0, 0, 0, // size
 			0, 0, 0, 0, // reserved
@@ -133,8 +132,8 @@ func TestBitmapAllocatorMarkFrame(t *testing.T) {
 	var alloc = BitmapAllocator{
 		pools: []framePool{
 			{
-				startFrame: pmm.Frame(0),
-				endFrame:   pmm.Frame(127),
+				startFrame: mm.Frame(0),
+				endFrame:   mm.Frame(127),
 				freeCount:  128,
 				freeBitmap: make([]uint64, 2),
 			},
@@ -142,8 +141,8 @@ func TestBitmapAllocatorMarkFrame(t *testing.T) {
 		totalPages: 128,
 	}
 
-	lastFrame := pmm.Frame(alloc.totalPages)
-	for frame := pmm.Frame(0); frame < lastFrame; frame++ {
+	lastFrame := mm.Frame(alloc.totalPages)
+	for frame := mm.Frame(0); frame < lastFrame; frame++ {
 		alloc.markFrame(0, frame, markReserved)
 
 		block := uint64(frame / 64)
@@ -163,7 +162,7 @@ func TestBitmapAllocatorMarkFrame(t *testing.T) {
 	}
 
 	// Calling markFrame with a frame not part of the pool should be a no-op
-	alloc.markFrame(0, pmm.Frame(0xbadf00d), markReserved)
+	alloc.markFrame(0, mm.Frame(0xbadf00d), markReserved)
 	for blockIndex, block := range alloc.pools[0].freeBitmap {
 		if block != 0 {
 			t.Errorf("expected all blocks to be set to 0; block %d is set to %d", blockIndex, block)
@@ -171,7 +170,7 @@ func TestBitmapAllocatorMarkFrame(t *testing.T) {
 	}
 
 	// Calling markFrame with a negative pool index should be a no-op
-	alloc.markFrame(-1, pmm.Frame(0), markReserved)
+	alloc.markFrame(-1, mm.Frame(0), markReserved)
 	for blockIndex, block := range alloc.pools[0].freeBitmap {
 		if block != 0 {
 			t.Errorf("expected all blocks to be set to 0; block %d is set to %d", blockIndex, block)
@@ -183,14 +182,14 @@ func TestBitmapAllocatorPoolForFrame(t *testing.T) {
 	var alloc = BitmapAllocator{
 		pools: []framePool{
 			{
-				startFrame: pmm.Frame(0),
-				endFrame:   pmm.Frame(63),
+				startFrame: mm.Frame(0),
+				endFrame:   mm.Frame(63),
 				freeCount:  64,
 				freeBitmap: make([]uint64, 1),
 			},
 			{
-				startFrame: pmm.Frame(128),
-				endFrame:   pmm.Frame(191),
+				startFrame: mm.Frame(128),
+				endFrame:   mm.Frame(191),
 				freeCount:  64,
 				freeBitmap: make([]uint64, 1),
 			},
@@ -199,14 +198,14 @@ func TestBitmapAllocatorPoolForFrame(t *testing.T) {
 	}
 
 	specs := []struct {
-		frame    pmm.Frame
+		frame    mm.Frame
 		expIndex int
 	}{
-		{pmm.Frame(0), 0},
-		{pmm.Frame(63), 0},
-		{pmm.Frame(64), -1},
-		{pmm.Frame(128), 1},
-		{pmm.Frame(192), -1},
+		{mm.Frame(0), 0},
+		{mm.Frame(63), 0},
+		{mm.Frame(64), -1},
+		{mm.Frame(128), 1},
+		{mm.Frame(192), -1},
 	}
 
 	for specIndex, spec := range specs {
@@ -220,14 +219,14 @@ func TestBitmapAllocatorReserveKernelFrames(t *testing.T) {
 	var alloc = BitmapAllocator{
 		pools: []framePool{
 			{
-				startFrame: pmm.Frame(0),
-				endFrame:   pmm.Frame(7),
+				startFrame: mm.Frame(0),
+				endFrame:   mm.Frame(7),
 				freeCount:  8,
 				freeBitmap: make([]uint64, 1),
 			},
 			{
-				startFrame: pmm.Frame(64),
-				endFrame:   pmm.Frame(191),
+				startFrame: mm.Frame(64),
+				endFrame:   mm.Frame(191),
 				freeCount:  128,
 				freeBitmap: make([]uint64, 2),
 			},
@@ -236,9 +235,9 @@ func TestBitmapAllocatorReserveKernelFrames(t *testing.T) {
 	}
 
 	// kernel occupies 16 frames and starts at the beginning of pool 1
-	earlyAllocator.kernelStartFrame = pmm.Frame(64)
-	earlyAllocator.kernelEndFrame = pmm.Frame(79)
-	kernelSizePages := uint32(earlyAllocator.kernelEndFrame - earlyAllocator.kernelStartFrame + 1)
+	bootMemAllocator.kernelStartFrame = mm.Frame(64)
+	bootMemAllocator.kernelEndFrame = mm.Frame(79)
+	kernelSizePages := uint32(bootMemAllocator.kernelEndFrame - bootMemAllocator.kernelStartFrame + 1)
 	alloc.reserveKernelFrames()
 
 	if exp, got := kernelSizePages, alloc.reservedPages; got != exp {
@@ -266,14 +265,14 @@ func TestBitmapAllocatorReserveEarlyAllocatorFrames(t *testing.T) {
 	var alloc = BitmapAllocator{
 		pools: []framePool{
 			{
-				startFrame: pmm.Frame(0),
-				endFrame:   pmm.Frame(63),
+				startFrame: mm.Frame(0),
+				endFrame:   mm.Frame(63),
 				freeCount:  64,
 				freeBitmap: make([]uint64, 1),
 			},
 			{
-				startFrame: pmm.Frame(64),
-				endFrame:   pmm.Frame(191),
+				startFrame: mm.Frame(64),
+				endFrame:   mm.Frame(191),
 				freeCount:  128,
 				freeBitmap: make([]uint64, 2),
 			},
@@ -286,9 +285,9 @@ func TestBitmapAllocatorReserveEarlyAllocatorFrames(t *testing.T) {
 	// Simulate 16 allocations made using the early allocator in region 0
 	// as reported by the multiboot data and move the kernel to pool 1
 	allocCount := uint32(16)
-	earlyAllocator.allocCount = uint64(allocCount)
-	earlyAllocator.kernelStartFrame = pmm.Frame(256)
-	earlyAllocator.kernelEndFrame = pmm.Frame(256)
+	bootMemAllocator.allocCount = uint64(allocCount)
+	bootMemAllocator.kernelStartFrame = mm.Frame(256)
+	bootMemAllocator.kernelEndFrame = mm.Frame(256)
 	alloc.reserveEarlyAllocatorFrames()
 
 	if exp, got := allocCount, alloc.reservedPages; got != exp {
@@ -316,15 +315,15 @@ func TestBitmapAllocatorAllocAndFreeFrame(t *testing.T) {
 	var alloc = BitmapAllocator{
 		pools: []framePool{
 			{
-				startFrame: pmm.Frame(0),
-				endFrame:   pmm.Frame(7),
+				startFrame: mm.Frame(0),
+				endFrame:   mm.Frame(7),
 				freeCount:  8,
 				// only the first 8 bits of block 0 are used
 				freeBitmap: make([]uint64, 1),
 			},
 			{
-				startFrame: pmm.Frame(64),
-				endFrame:   pmm.Frame(191),
+				startFrame: mm.Frame(64),
+				endFrame:   mm.Frame(191),
 				freeCount:  128,
 				freeBitmap: make([]uint64, 2),
 			},
@@ -377,11 +376,11 @@ func TestBitmapAllocatorAllocAndFreeFrame(t *testing.T) {
 	}
 
 	// Test Free errors
-	if err := alloc.FreeFrame(pmm.Frame(0)); err != errBitmapAllocDoubleFree {
+	if err := alloc.FreeFrame(mm.Frame(0)); err != errBitmapAllocDoubleFree {
 		t.Fatalf("expected error errBitmapAllocDoubleFree; got %v", err)
 	}
 
-	if err := alloc.FreeFrame(pmm.Frame(0xbadf00d)); err != errBitmapAllocFrameNotManaged {
+	if err := alloc.FreeFrame(mm.Frame(0xbadf00d)); err != errBitmapAllocFrameNotManaged {
 		t.Fatalf("expected error errBitmapFrameNotManaged; got %v", err)
 	}
 }
@@ -393,16 +392,16 @@ func TestAllocatorPackageInit(t *testing.T) {
 	}()
 
 	var (
-		physMem = make([]byte, 2*mem.PageSize)
+		physMem = make([]byte, 2*mm.PageSize)
 	)
 	multiboot.SetInfoPtr(uintptr(unsafe.Pointer(&multibootMemoryMap[0])))
 
 	t.Run("success", func(t *testing.T) {
-		mapFn = func(page vmm.Page, frame pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
+		mapFn = func(page mm.Page, frame mm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
 			return nil
 		}
 
-		reserveRegionFn = func(_ mem.Size) (uintptr, *kernel.Error) {
+		reserveRegionFn = func(_ uintptr) (uintptr, *kernel.Error) {
 			return uintptr(unsafe.Pointer(&physMem[0])), nil
 		}
 
@@ -410,8 +409,8 @@ func TestAllocatorPackageInit(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// At this point sysAllocFrame should work
-		if _, err := AllocFrame(); err != nil {
+		// At this point the bitmap allocator should be up and running
+		if _, err := bitmapAllocFrame(); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -419,7 +418,7 @@ func TestAllocatorPackageInit(t *testing.T) {
 	t.Run("error", func(t *testing.T) {
 		expErr := &kernel.Error{Module: "test", Message: "something went wrong"}
 
-		mapFn = func(page vmm.Page, frame pmm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
+		mapFn = func(page mm.Page, frame mm.Frame, flags vmm.PageTableEntryFlag) *kernel.Error {
 			return expErr
 		}
 

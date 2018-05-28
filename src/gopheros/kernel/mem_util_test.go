@@ -1,22 +1,24 @@
-package mem
+package kernel
 
 import (
 	"testing"
 	"unsafe"
 )
 
+const pageSize = 4096
+
 func TestMemset(t *testing.T) {
 	// memset with a 0 size should be a no-op
 	Memset(uintptr(0), 0x00, 0)
 
 	for pageCount := uint32(1); pageCount <= 10; pageCount++ {
-		buf := make([]byte, PageSize<<pageCount)
+		buf := make([]byte, pageSize<<pageCount)
 		for i := 0; i < len(buf); i++ {
 			buf[i] = 0xFE
 		}
 
 		addr := uintptr(unsafe.Pointer(&buf[0]))
-		Memset(addr, 0x00, Size(len(buf)))
+		Memset(addr, 0x00, uintptr(len(buf)))
 
 		for i := 0; i < len(buf); i++ {
 			if got := buf[i]; got != 0x00 {
@@ -31,8 +33,8 @@ func TestMemcopy(t *testing.T) {
 	Memcopy(uintptr(0), uintptr(0), 0)
 
 	var (
-		src = make([]byte, PageSize)
-		dst = make([]byte, PageSize)
+		src = make([]byte, pageSize)
+		dst = make([]byte, pageSize)
 	)
 	for i := 0; i < len(src); i++ {
 		src[i] = byte(i % 256)
@@ -41,7 +43,7 @@ func TestMemcopy(t *testing.T) {
 	Memcopy(
 		uintptr(unsafe.Pointer(&src[0])),
 		uintptr(unsafe.Pointer(&dst[0])),
-		PageSize,
+		pageSize,
 	)
 
 	for i := 0; i < len(src); i++ {
