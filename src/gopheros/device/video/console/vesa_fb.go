@@ -5,11 +5,10 @@ import (
 	"gopheros/device/video/console/font"
 	"gopheros/device/video/console/logo"
 	"gopheros/kernel"
-	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
+	"gopheros/multiboot"
 	"image/color"
 	"io"
 	"reflect"
@@ -560,9 +559,9 @@ func (cons *VesaFbConsole) DriverVersion() (uint16, uint16, uint16) {
 // DriverInit initializes this driver.
 func (cons *VesaFbConsole) DriverInit(w io.Writer) *kernel.Error {
 	// Map the framebuffer so we can write to it
-	fbSize := mem.Size(cons.height * cons.pitch)
+	fbSize := uintptr(cons.height * cons.pitch)
 	fbPage, err := mapRegionFn(
-		pmm.Frame(cons.fbPhysAddr>>mem.PageShift),
+		mm.Frame(cons.fbPhysAddr>>mm.PageShift),
 		fbSize,
 		vmm.FlagPresent|vmm.FlagRW,
 	)

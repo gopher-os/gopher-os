@@ -1,4 +1,4 @@
-package mem
+package kernel
 
 import (
 	"reflect"
@@ -9,7 +9,7 @@ import (
 // is based on bytes.Repeat; instead of using a for loop, this function uses
 // log2(size) copy calls which should give us a speed boost as page addresses
 // are always aligned.
-func Memset(addr uintptr, value byte, size Size) {
+func Memset(addr uintptr, value byte, size uintptr) {
 	if size == 0 {
 		return
 	}
@@ -23,13 +23,13 @@ func Memset(addr uintptr, value byte, size Size) {
 
 	// Set first element and make log2(size) optimized copies
 	target[0] = value
-	for index := Size(1); index < size; index *= 2 {
+	for index := uintptr(1); index < size; index *= 2 {
 		copy(target[index:], target[:index])
 	}
 }
 
 // Memcopy copies size bytes from src to dst.
-func Memcopy(src, dst uintptr, size Size) {
+func Memcopy(src, dst uintptr, size uintptr) {
 	if size == 0 {
 		return
 	}

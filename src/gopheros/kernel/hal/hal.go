@@ -7,8 +7,8 @@ import (
 	"gopheros/device/video/console"
 	"gopheros/device/video/console/font"
 	"gopheros/device/video/console/logo"
-	"gopheros/kernel/hal/multiboot"
 	"gopheros/kernel/kfmt"
+	"gopheros/multiboot"
 	"sort"
 
 	// import and register acpi driver

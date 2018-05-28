@@ -5,9 +5,8 @@ import (
 	"gopheros/device/acpi/table"
 	"gopheros/kernel"
 	"gopheros/kernel/kfmt"
-	"gopheros/kernel/mem"
-	"gopheros/kernel/mem/pmm"
-	"gopheros/kernel/mem/vmm"
+	"gopheros/kernel/mm"
+	"gopheros/kernel/mm/vmm"
 	"io"
 	"unsafe"
 )
@@ -165,18 +164,18 @@ func (drv *acpiDriver) enumerateTables(w io.Writer) *kernel.Error {
 // the mapping to cover the table contents and verifies the checksum before
 // returning a pointer to the table header.
 func mapACPITable(tableAddr uintptr) (header *table.SDTHeader, sizeofHeader uintptr, err *kernel.Error) {
-	var headerPage vmm.Page
+	var headerPage mm.Page
 
 	// Identity-map the table header so we can access its length field
 	sizeofHeader = unsafe.Sizeof(table.SDTHeader{})
-	if headerPage, err = identityMapFn(pmm.FrameFromAddress(tableAddr), mem.Size(sizeofHeader), vmm.FlagPresent); err != nil {
+	if headerPage, err = identityMapFn(mm.FrameFromAddress(tableAddr), sizeofHeader, vmm.FlagPresent); err != nil {
 		return nil, sizeofHeader, err
 	}
 
 	// Expand mapping to cover the table contents
 	headerPageAddr := headerPage.Address() + vmm.PageOffset(tableAddr)
 	header = (*table.SDTHeader)(unsafe.Pointer(headerPageAddr))
-	if _, err = identityMapFn(pmm.FrameFromAddress(tableAddr), mem.Size(header.Length), vmm.FlagPresent); err != nil {
+	if _, err = identityMapFn(mm.FrameFromAddress(tableAddr), uintptr(header.Length), vmm.FlagPresent); err != nil {
 		return nil, sizeofHeader, err
 	}
 
@@ -200,14 +199,14 @@ func locateRSDT() (uintptr, bool, *kernel.Error) {
 
 	// Cleanup temporary identity mappings when the function returns
 	defer func() {
-		for curPage := vmm.PageFromAddress(rsdpLocationLow); curPage <= vmm.PageFromAddress(rsdpLocationHi); curPage++ {
+		for curPage := mm.PageFromAddress(rsdpLocationLow); curPage <= mm.PageFromAddress(rsdpLocationHi); curPage++ {
 			unmapFn(curPage)
 		}
 	}()
 
 	// Setup temporary identity mapping so we can scan for the header
-	for curPage := vmm.PageFromAddress(rsdpLocationLow); curPage <= vmm.PageFromAddress(rsdpLocationHi); curPage++ {
-		if err := mapFn(curPage, pmm.Frame(curPage), vmm.FlagPresent); err != nil {
+	for curPage := mm.PageFromAddress(rsdpLocationLow); curPage <= mm.PageFromAddress(rsdpLocationHi); curPage++ {
+		if err := mapFn(curPage, mm.Frame(curPage), vmm.FlagPresent); err != nil {
 			return 0, false, err
 		}
 	}

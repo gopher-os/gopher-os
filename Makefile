@@ -174,7 +174,7 @@ clean:
 
 lint: lint-check-deps
 	@echo "[gometalinter] linting sources"
-	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 \
+	@GOCACHE=off GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 \
 		--disable-all \
 		--enable=deadcode \
 		--enable=errcheck \
@@ -199,7 +199,7 @@ lint-check-deps:
 	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 --install >/dev/null
 
 test:
-	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
+	GOCACHE=off GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
 
 fuzz-deps:
 	@mkdir -p $(BUILD_DIR)/fuzz
