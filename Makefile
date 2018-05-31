@@ -1,45 +1,44 @@
+export SHELL := /bin/bash -o pipefail
+
 OS = $(shell uname -s)
-ARCH := x86_64
 BUILD_DIR := build
 BUILD_ABS_DIR := $(CURDIR)/$(BUILD_DIR)
+
 VBOX_VM_NAME := gopher-os
+QEMU ?= qemu-system-x86_64
 
-kernel_target :=$(BUILD_DIR)/kernel-$(ARCH).bin
-iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
-
-# If your go is called something else set it on the commandline, like
-# this: make run GO=go1.8
+# If your go is called something else set it on the commandline, like this: make run GO=go1.8
 GO ?= go
+GOOS := linux
+GOARCH := amd64
+GOROOT := $(shell $(GO) env GOROOT)
 
 # Prepend build path to GOPATH so the compiled packages and linter dependencies
 # end up inside the build folder
 GOPATH := $(BUILD_ABS_DIR):$(shell pwd):$(GOPATH)
+
+LD := ld
+LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
+
+AS := nasm
+AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I src/arch/$(GOARCH)/rt0/ \
+	    -dNUM_REDIRECTS=$(shell GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go count)
+
+GC_FLAGS ?=
+
+kernel_target :=$(BUILD_DIR)/kernel-$(GOARCH).bin
+iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 
 FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
 # To append more entries to the above list use the following syntax
 # FUZZ_PKG_LIST += path-to-pkg
 
 ifeq ($(OS), Linux)
-export SHELL := /bin/bash -o pipefail
-
-LD := ld
-AS := nasm
-
-GOOS := linux
-GOARCH := amd64
-GOROOT := $(shell $(GO) env GOROOT)
-
-GC_FLAGS ?=
-LD_FLAGS := -n -T $(BUILD_DIR)/linker.ld -static --no-ld-generated-unwind-info
-AS_FLAGS := -g -f elf64 -F dwarf -I $(BUILD_DIR)/ -I src/arch/$(ARCH)/asm/ \
-	    -dNUM_REDIRECTS=$(shell GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go count) \
-	    -dWITH_RUNTIME_AVXMEMMOVE=$(shell grep -r "var useAVXmemmove" $(GOROOT)/src/runtime/ | wc -l)
-
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
 
-asm_src_files := $(wildcard src/arch/$(ARCH)/asm/*.s)
-asm_obj_files := $(patsubst src/arch/$(ARCH)/asm/%.s, $(BUILD_DIR)/arch/$(ARCH)/asm/%.o, $(asm_src_files))
+asm_src_files := $(wildcard src/arch/$(GOARCH)/rt0/*.s)
+asm_obj_files := $(patsubst src/arch/$(GOARCH)/rt0/%.s, $(BUILD_DIR)/arch/$(GOARCH)/rt0/%.o, $(asm_src_files))
 
 .PHONY: kernel iso clean binutils_version_check
 
@@ -50,7 +49,7 @@ kernel_image: $(kernel_target)
 	@GOPATH=$(GOPATH) $(GO) run tools/redirects/redirects.go populate-table $(kernel_target)
 
 $(kernel_target): asm_files linker_script go.o
-	@echo "[$(LD)] linking kernel-$(ARCH).bin"
+	@echo "[$(LD)] linking kernel-$(GOARCH).bin"
 	@$(LD) $(LD_FLAGS) -o $(kernel_target) $(asm_obj_files) $(BUILD_DIR)/go.o
 
 go.o:
@@ -97,10 +96,10 @@ grub-mkrescue_check:
 
 linker_script:
 	@echo "[sed] extracting LMA and VMA from constants.inc"
-	@echo "[gcc] pre-processing arch/$(ARCH)/script/linker.ld.in"
-	@gcc `cat src/arch/$(ARCH)/asm/constants.inc | sed -e "/^$$/d; /^;/d; s/^/-D/g; s/\s*equ\s*/=/g;" | tr '\n' ' '` \
+	@echo "[gcc] pre-processing arch/$(GOARCH)/script/linker.ld.in"
+	@gcc `cat src/arch/$(GOARCH)/rt0/constants.inc | sed -e "/^$$/d; /^;/d; s/^/-D/g; s/\s*equ\s*/=/g;" | tr '\n' ' '` \
 		-E -x \
-		c src/arch/$(ARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
+		c src/arch/$(GOARCH)/script/linker.ld.in | grep -v "^#" > $(BUILD_DIR)/linker.ld
 
 $(BUILD_DIR)/go_asm_offsets.inc:
 	@mkdir -p $(BUILD_DIR)
@@ -108,7 +107,7 @@ $(BUILD_DIR)/go_asm_offsets.inc:
 	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
 	@GOROOT=$(GOROOT) GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
 
-$(BUILD_DIR)/arch/$(ARCH)/asm/%.o: src/arch/$(ARCH)/asm/%.s
+$(BUILD_DIR)/arch/$(GOARCH)/rt0/%.o: src/arch/$(GOARCH)/rt0/%.s
 	@mkdir -p $(shell dirname $@)
 	@echo "[$(AS)] $<"
 	@$(AS) $(AS_FLAGS) $< -o $@
@@ -118,11 +117,11 @@ asm_files: $(BUILD_DIR)/go_asm_offsets.inc $(asm_obj_files)
 iso: $(iso_target)
 
 $(iso_target): iso_prereq kernel_image
-	@echo "[grub] building ISO kernel-$(ARCH).iso"
+	@echo "[grub] building ISO kernel-$(GOARCH).iso"
 
 	@mkdir -p $(BUILD_DIR)/isofiles/boot/grub
 	@cp $(kernel_target) $(BUILD_DIR)/isofiles/boot/kernel.bin
-	@cp src/arch/$(ARCH)/script/grub.cfg $(BUILD_DIR)/isofiles/boot/grub
+	@cp src/arch/$(GOARCH)/script/grub.cfg $(BUILD_DIR)/isofiles/boot/grub
 	@grub-mkrescue -o $(iso_target) $(BUILD_DIR)/isofiles 2>&1 | sed -e "s/^/  | /g"
 	@rm -r $(BUILD_DIR)/isofiles
 
@@ -141,7 +140,7 @@ endif
 
 run-qemu: GC_FLAGS += -B
 run-qemu: iso
-	qemu-system-$(ARCH) -cdrom $(iso_target) -vga std -d int,cpu_reset -no-reboot
+	$(QEMU) -cdrom $(iso_target) -vga std -d int,cpu_reset -no-reboot
 
 run-vbox: iso
 	VBoxManage createvm --name $(VBOX_VM_NAME) --ostype "Linux_64" --register || true
@@ -153,7 +152,7 @@ run-vbox: iso
 # When building gdb target disable optimizations (-N) and inlining (l) of Go code
 gdb: GC_FLAGS += -N -l
 gdb: iso
-	qemu-system-$(ARCH) -M accel=tcg -vga std -s -S -cdrom $(iso_target) &
+	$(QEMU) -M accel=tcg -vga std -s -S -cdrom $(iso_target) &
 	sleep 1
 	gdb \
 	    -ex 'add-auto-load-safe-path $(pwd)' \
@@ -165,7 +164,7 @@ gdb: iso
 	    -ex 'set arch i386:x86-64:intel' \
 	    -ex 'source $(GOROOT)/src/runtime/runtime-gdb.py' \
 	    -ex 'set substitute-path $(VAGRANT_SRC_FOLDER) $(shell pwd)'
-	@killall qemu-system-$(ARCH) || true
+	@killall $(QEMU) || true
 
 clean:
 	@test -d $(BUILD_DIR) && rm -rf $(BUILD_DIR) || true
@@ -218,4 +217,3 @@ test-fuzz: fuzz-deps $(addsuffix .fuzzpkg,$(FUZZ_PKG_LIST))
 
 collect-coverage:
 	GOPATH=$(GOPATH) sh coverage.sh
-
