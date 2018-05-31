@@ -75,14 +75,12 @@ go.o:
 	@# objcopy to make that symbol exportable. Since nasm does not support externs
 	@# with slashes we create a global symbol alias for kernel.Kmain
 	@echo "[objcopy] create kernel.Kmain alias to gopheros/kernel/kmain.Kmain"
-	@echo "[objcopy] globalizing symbols {_rt0_interrupt_handlers, runtime.g0/m0/physPageSize/useAVXmemmove}"
+	@echo "[objcopy] globalizing symbols {runtime.g0/m0/physPageSize}"
 	@objcopy \
 		--add-symbol kernel.Kmain=.text:0x`nm $(BUILD_DIR)/go.o | grep "kmain.Kmain$$" | cut -d' ' -f1` \
-		--globalize-symbol _rt0_interrupt_handlers \
 		--globalize-symbol runtime.g0 \
 		--globalize-symbol runtime.m0 \
 		--globalize-symbol runtime.physPageSize \
-		--globalize-symbol runtime.useAVXmemmove \
 		 $(BUILD_DIR)/go.o $(BUILD_DIR)/go.o
 
 binutils_version_check:
