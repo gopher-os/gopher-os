@@ -3,7 +3,7 @@ package vmm
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/irq"
+	"gopheros/kernel/gate"
 	"gopheros/kernel/mm"
 	"gopheros/multiboot"
 	"testing"
@@ -18,7 +18,7 @@ func TestInit(t *testing.T) {
 		translateFn = Translate
 		mapTemporaryFn = MapTemporary
 		unmapFn = Unmap
-		handleExceptionWithCodeFn = irq.HandleExceptionWithCode
+		handleInterruptFn = gate.HandleInterrupt
 	}()
 
 	// reserve space for an allocated page
@@ -42,7 +42,7 @@ func TestInit(t *testing.T) {
 		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p mm.Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f mm.Frame) (mm.Page, *kernel.Error) { return mm.Page(f), nil }
-		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+		handleInterruptFn = func(_ gate.InterruptNumber, _ uint8, _ func(*gate.Registers)) {}
 
 		if err := Init(0); err != nil {
 			t.Fatal(err)
@@ -92,7 +92,7 @@ func TestInit(t *testing.T) {
 		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p mm.Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f mm.Frame) (mm.Page, *kernel.Error) { return mm.Page(f), nil }
-		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+		handleInterruptFn = func(_ gate.InterruptNumber, _ uint8, _ func(*gate.Registers)) {}
 
 		if err := Init(0); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
@@ -112,7 +112,7 @@ func TestInit(t *testing.T) {
 		switchPDTFn = func(_ uintptr) {}
 		unmapFn = func(p mm.Page) *kernel.Error { return nil }
 		mapTemporaryFn = func(f mm.Frame) (mm.Page, *kernel.Error) { return mm.Page(f), expErr }
-		handleExceptionWithCodeFn = func(_ irq.ExceptionNum, _ irq.ExceptionHandlerWithCode) {}
+		handleInterruptFn = func(_ gate.InterruptNumber, _ uint8, _ func(*gate.Registers)) {}
 
 		if err := Init(0); err != expErr {
 			t.Fatalf("expected error: %v; got %v", expErr, err)
