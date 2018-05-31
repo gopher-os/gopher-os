@@ -2,6 +2,7 @@ package kmain
 
 import (
 	"gopheros/kernel"
+	"gopheros/kernel/gate"
 	"gopheros/kernel/goruntime"
 	"gopheros/kernel/hal"
 	"gopheros/kernel/kfmt"
@@ -31,6 +32,7 @@ func Kmain(multibootInfoPtr, kernelStart, kernelEnd, kernelPageOffset uintptr) {
 	multiboot.SetInfoPtr(multibootInfoPtr)
 
 	var err *kernel.Error
+	gate.Init()
 	if err = pmm.Init(kernelStart, kernelEnd); err != nil {
 		panic(err)
 	} else if err = vmm.Init(kernelPageOffset); err != nil {
