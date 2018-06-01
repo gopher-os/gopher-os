@@ -189,6 +189,8 @@ lint: lint-check-deps
 		--deadline 300s \
 		--exclude 'possible misuse of unsafe.Pointer' \
 		--exclude 'x \^ 0 always equals x' \
+		--exclude 'dispatchInterrupt is unused' \
+		--exclude 'interruptGateEntries is unused' \
 		src/...
 
 lint-check-deps:
