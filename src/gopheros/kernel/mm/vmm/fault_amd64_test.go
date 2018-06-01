@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/irq"
+	"gopheros/kernel/gate"
 	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mm"
 	"strings"
@@ -15,8 +15,7 @@ import (
 
 func TestRecoverablePageFault(t *testing.T) {
 	var (
-		frame      irq.Frame
-		regs       irq.Regs
+		regs       gate.Registers
 		pageEntry  pageTableEntry
 		origPage   = make([]byte, mm.PageSize)
 		clonedPage = make([]byte, mm.PageSize)
@@ -91,7 +90,8 @@ func TestRecoverablePageFault(t *testing.T) {
 			pageEntry = 0
 			pageEntry.SetFlags(spec.pteFlags)
 
-			pageFaultHandler(2, &frame, &regs)
+			regs.Info = 2
+			pageFaultHandler(&regs)
 		})
 	}
 
@@ -141,9 +141,8 @@ func TestNonRecoverablePageFault(t *testing.T) {
 	}
 
 	var (
-		regs  irq.Regs
-		frame irq.Frame
-		buf   bytes.Buffer
+		regs gate.Registers
+		buf  bytes.Buffer
 	)
 
 	kfmt.SetOutputSink(&buf)
@@ -156,7 +155,8 @@ func TestNonRecoverablePageFault(t *testing.T) {
 				}
 			}()
 
-			nonRecoverablePageFault(0xbadf00d000, spec.errCode, &frame, &regs, errUnrecoverableFault)
+			regs.Info = spec.errCode
+			nonRecoverablePageFault(0xbadf00d000, &regs, errUnrecoverableFault)
 			if got := buf.String(); !strings.Contains(got, spec.expReason) {
 				t.Errorf("expected reason %q; got output:\n%q", spec.expReason, got)
 			}
@@ -169,10 +169,7 @@ func TestGPFHandler(t *testing.T) {
 		readCR2Fn = cpu.ReadCR2
 	}()
 
-	var (
-		regs  irq.Regs
-		frame irq.Frame
-	)
+	var regs gate.Registers
 
 	readCR2Fn = func() uint64 {
 		return 0xbadf00d000
@@ -184,5 +181,5 @@ func TestGPFHandler(t *testing.T) {
 		}
 	}()
 
-	generalProtectionFaultHandler(0, &frame, &regs)
+	generalProtectionFaultHandler(&regs)
 }

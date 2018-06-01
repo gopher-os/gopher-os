@@ -3,16 +3,14 @@ package vmm
 import (
 	"gopheros/kernel"
 	"gopheros/kernel/cpu"
-	"gopheros/kernel/irq"
 	"gopheros/kernel/mm"
 )
 
 var (
 	// the following functions are mocked by tests and are automatically
 	// inlined by the compiler.
-	handleExceptionWithCodeFn = irq.HandleExceptionWithCode
-	readCR2Fn                 = cpu.ReadCR2
-	translateFn               = Translate
+	readCR2Fn   = cpu.ReadCR2
+	translateFn = Translate
 
 	errUnrecoverableFault = &kernel.Error{Module: "vmm", Message: "page/gpf fault"}
 )
@@ -24,13 +22,10 @@ func Init(kernelPageOffset uintptr) *kernel.Error {
 		return err
 	}
 
-	if err := reserveZeroedFrame(); err != nil {
-		return err
-	}
+	// Install arch-specific handlers for vmm-related faults.
+	installFaultHandlers()
 
-	handleExceptionWithCodeFn(irq.PageFaultException, pageFaultHandler)
-	handleExceptionWithCodeFn(irq.GPFException, generalProtectionFaultHandler)
-	return nil
+	return reserveZeroedFrame()
 }
 
 // reserveZeroedFrame reserves a physical frame to be used together with
