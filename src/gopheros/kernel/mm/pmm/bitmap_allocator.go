@@ -5,6 +5,7 @@ import (
 	"gopheros/kernel/kfmt"
 	"gopheros/kernel/mm"
 	"gopheros/kernel/mm/vmm"
+	"gopheros/kernel/sync"
 	"gopheros/multiboot"
 	"math"
 	"reflect"
@@ -51,6 +52,8 @@ type framePool struct {
 // BitmapAllocator implements a physical frame allocator that tracks frame
 // reservations across the available memory pools using bitmaps.
 type BitmapAllocator struct {
+	mutex sync.Spinlock
+
 	// totalPages tracks the total number of pages across all pools.
 	totalPages uint32
 
@@ -240,6 +243,8 @@ func (alloc *BitmapAllocator) printStats() {
 // AllocFrame reserves and returns a physical memory frame. An error will be
 // returned if no more memory can be allocated.
 func (alloc *BitmapAllocator) AllocFrame() (mm.Frame, *kernel.Error) {
+	alloc.mutex.Acquire()
+
 	for poolIndex := 0; poolIndex < len(alloc.pools); poolIndex++ {
 		if alloc.pools[poolIndex].freeCount == 0 {
 			continue
@@ -260,11 +265,13 @@ func (alloc *BitmapAllocator) AllocFrame() (mm.Frame, *kernel.Error) {
 				alloc.pools[poolIndex].freeCount--
 				alloc.pools[poolIndex].freeBitmap[blockIndex] |= mask
 				alloc.reservedPages++
+				alloc.mutex.Release()
 				return alloc.pools[poolIndex].startFrame + mm.Frame((blockIndex<<6)+blockOffset), nil
 			}
 		}
 	}
 
+	alloc.mutex.Release()
 	return mm.InvalidFrame, errBitmapAllocOutOfMemory
 }
 
@@ -272,8 +279,11 @@ func (alloc *BitmapAllocator) AllocFrame() (mm.Frame, *kernel.Error) {
 // Trying to release a frame not part of the allocator pools or a frame that
 // is already marked as free will cause an error to be returned.
 func (alloc *BitmapAllocator) FreeFrame(frame mm.Frame) *kernel.Error {
+	alloc.mutex.Acquire()
+
 	poolIndex := alloc.poolForFrame(frame)
 	if poolIndex < 0 {
+		alloc.mutex.Release()
 		return errBitmapAllocFrameNotManaged
 	}
 
@@ -282,11 +292,13 @@ func (alloc *BitmapAllocator) FreeFrame(frame mm.Frame) *kernel.Error {
 	mask := uint64(1 << (63 - (relFrame - block<<6)))
 
 	if alloc.pools[poolIndex].freeBitmap[block]&mask == 0 {
+		alloc.mutex.Release()
 		return errBitmapAllocDoubleFree
 	}
 
 	alloc.pools[poolIndex].freeBitmap[block] &^= mask
 	alloc.pools[poolIndex].freeCount++
 	alloc.reservedPages--
+	alloc.mutex.Release()
 	return nil
 }
