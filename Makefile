@@ -9,7 +9,6 @@ QEMU ?= qemu-system-x86_64
 
 # If your go is called something else set it on the commandline, like this: make run GO=go1.8
 GO ?= go
-GOOS := linux
 GOARCH := amd64
 GOROOT := $(shell $(GO) env GOROOT)
 
@@ -34,6 +33,8 @@ FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
 # FUZZ_PKG_LIST += path-to-pkg
 
 ifeq ($(OS), Linux)
+GOOS := linux
+
 MIN_OBJCOPY_VERSION := 2.26.0
 HAVE_VALID_OBJCOPY := $(shell objcopy -V | head -1 | awk -F ' ' '{print "$(MIN_OBJCOPY_VERSION)\n" $$NF}' | sort -ct. -k1,1n -k2,2n && echo "y")
 
@@ -190,6 +191,7 @@ lint: lint-check-deps
 		--exclude 'x \^ 0 always equals x' \
 		--exclude 'dispatchInterrupt is unused' \
 		--exclude 'interruptGateEntries is unused' \
+		--exclude 'yieldFn is unused' \
 		src/...
 
 lint-check-deps:
